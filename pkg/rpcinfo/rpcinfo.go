@@ -82,7 +82,7 @@ func init() {
 
 // NewRPCInfo creates a new RPCInfo using the given information.
 func NewRPCInfo(from, to EndpointInfo, ink Invocation, config RPCConfig, stats RPCStats) RPCInfo {
-	r := rpcInfoPool.Get().(*rpcInfo)
+	r := &rpcInfo{}
 	r.from = from
 	r.to = to
 	r.invocation = ink
