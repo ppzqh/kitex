@@ -618,3 +618,65 @@ func BenchmarkLongPoolGetRand2000Mesh(b *testing.B) {
 		}
 	})
 }
+
+func getIdleConnListLen(lp *LongPool) int {
+	lp.watcher.Lock()
+	defer lp.watcher.Unlock()
+	return lp.watcher.connQueue.connQueue.Len()
+}
+
+func TestWatcherCleanIdleConnOne(t *testing.T) {
+	maxIdleTimeout := 100 * time.Millisecond
+	lp := newLongPoolForTest(10, 50, maxIdleTimeout)
+
+	d := &dialer.SynthesizedDialer{
+		DialFunc: func(network, address string, timeout time.Duration) (net.Conn, error) {
+			na := utils.NewNetAddr(network, address)
+			return &mocks.Conn{
+				RemoteAddrFunc: func() net.Addr { return na },
+			}, nil
+		},
+	}
+	opt := dialer.ConnOption{Dialer: d, ConnectTimeout: time.Second}
+	addr := "127.0.0.1:8000"
+	count := 10
+	for i := 0; i < count; i++ {
+		conn, err := lp.Get(context.TODO(), "tcp", addr, opt)
+		test.Assert(t, err == nil)
+		err = lp.Put(conn)
+		test.Assert(t, err == nil)
+		test.Assert(t, getIdleConnListLen(lp) == 1)
+		time.Sleep(maxIdleTimeout * 2)
+		test.Assert(t, getIdleConnListLen(lp) == 0)
+	}
+}
+
+func BenchmarkWatcherCleanIdleConnMultiple(b *testing.B) {
+	maxIdleTimeout := 100 * time.Millisecond
+	p := newLongPoolForTest(100, 500, maxIdleTimeout)
+
+	d := &dialer.SynthesizedDialer{
+		DialFunc: func(network, address string, timeout time.Duration) (net.Conn, error) {
+			na := utils.NewNetAddr(network, address)
+			return &mocks.Conn{
+				RemoteAddrFunc: func() net.Addr { return na },
+			}, nil
+		},
+	}
+	opt := dialer.ConnOption{Dialer: d, ConnectTimeout: time.Second}
+
+	var addrs []string
+	for i := 0; i < 2000; i++ {
+		addrs = append(addrs, fmt.Sprintf("127.0.0.1:%d", 8000+rand.Intn(10000)))
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			conn, _ := p.Get(context.TODO(), "tcp", addrs[rand.Intn(2000)], opt)
+			p.Put(conn)
+		}
+	})
+	time.Sleep(maxIdleTimeout * 2)
+	test.Assert(b, getIdleConnListLen(p) == 0)
+}

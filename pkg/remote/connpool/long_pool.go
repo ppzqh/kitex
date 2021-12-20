@@ -18,6 +18,7 @@
 package connpool
 
 import (
+	"container/heap"
 	"context"
 	"net"
 	"reflect"
@@ -74,6 +75,174 @@ func (c *longConn) IsActive() bool {
 	return time.Now().Before(c.deadline)
 }
 
+// longConnQueue implements the heap.Interface
+type longConnQueue []*longConn
+
+func (q longConnQueue) Len() int { return len(q) }
+
+func (q longConnQueue) Less(i, j int) bool {
+	return q[i].deadline.Before(q[j].deadline)
+}
+
+func (q longConnQueue) Swap(i, j int) {
+	q[i], q[j] = q[j], q[i]
+}
+
+func (q *longConnQueue) Push(c interface{}) {
+	conn := c.(*longConn)
+	*q = append(*q, conn)
+}
+
+func (q *longConnQueue) Pop() interface{} {
+	var item interface{}
+	n := len(*q)
+	*q, item = (*q)[0:n-1], (*q)[n-1]
+	return item
+}
+
+// idleConnQueue encapsulates the longConnQueue and provides functions for the watcher to use
+type idleConnQueue struct {
+	connQueue *longConnQueue
+	closed    bool
+}
+
+func (q *idleConnQueue) Pop() net.Conn {
+	if q.connQueue == nil {
+		return nil
+	}
+	return heap.Pop(q.connQueue).(net.Conn)
+}
+
+func (q *idleConnQueue) Push(conn net.Conn) {
+	heap.Push(q.connQueue, conn)
+}
+
+// Remove deletes conn from the connQueue
+func (q *idleConnQueue) Remove(conn net.Conn) {
+	// there may be duplicate items in the heap
+	for i := 0; i < q.connQueue.Len(); i++ {
+		if c := (*q.connQueue)[i]; c == conn {
+			heap.Remove(q.connQueue, i)
+			i--
+		}
+	}
+}
+
+func (q *idleConnQueue) Top() net.Conn {
+	if q.connQueue == nil || q.connQueue.Len() == 0 {
+		return nil
+	}
+	return (*q.connQueue)[0]
+}
+
+func (q *idleConnQueue) Close() {
+	q.connQueue = nil
+	q.closed = true
+}
+
+func (q *idleConnQueue) isClosed() bool {
+	return q.closed
+}
+
+func newIdleConnQueue() *idleConnQueue {
+	q := &idleConnQueue{connQueue: new(longConnQueue)}
+	heap.Init(q.connQueue)
+	return q
+}
+
+type watcher struct {
+	sync.Mutex
+	connQueue     *idleConnQueue // Store all idle connections. Put when longPool.Put() puts back a connection.
+	closedCh      chan struct{}
+	checkInterval time.Duration
+}
+
+func newWatcher(checkInterval time.Duration) *watcher {
+	w := &watcher{
+		closedCh:      make(chan struct{}),
+		checkInterval: checkInterval,
+		connQueue:     newIdleConnQueue(),
+	}
+	if checkInterval > 0 {
+		w.Watch()
+	}
+	return w
+}
+
+// Add adds one connection into the connQueue of watcher
+func (w *watcher) Add(conn net.Conn) {
+	w.Lock()
+	defer w.Unlock()
+
+	if conn == nil {
+		return
+	}
+	w.connQueue.Push(conn)
+}
+
+// Remove removes the connection from the watcher
+func (w *watcher) Remove(conn net.Conn) {
+	w.Lock()
+	defer w.Unlock()
+
+	if conn == nil {
+		return
+	}
+	w.connQueue.Remove(conn)
+}
+
+// Watch starts the watcher to monitor all connections in connQueue
+func (w *watcher) Watch() {
+	go func() {
+		ticker := time.NewTicker(w.checkInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-w.closedCh:
+				break
+			case <-ticker.C:
+				// TODO: check if the pool has been closed
+				w.Lock()
+				w.cleanStaleConn()
+				// set the timer to the next deadline
+				conn := w.connQueue.Top()
+				var d time.Duration
+				if conn != nil {
+					if next := conn.(*longConn).deadline.Sub(time.Now()); next > 0 {
+						d = next
+					}
+				} else {
+					d = w.checkInterval
+				}
+				ticker.Reset(d)
+				w.Unlock()
+			}
+		}
+	}()
+}
+
+// Close stops the watcher
+func (w *watcher) Close() {
+	close(w.closedCh)
+	w.connQueue.Close()
+}
+
+// cleanStaleConn checks all the connections and close inactive ones.
+func (w *watcher) cleanStaleConn() {
+	for {
+		if w.connQueue.isClosed() {
+			break
+		}
+		// no more stale connection
+		if conn := w.connQueue.Top(); conn == nil || conn.(*longConn).IsActive() {
+			return
+		}
+		// clean this stale connection
+		_ = w.connQueue.Pop().(*longConn).Conn.Close()
+	}
+}
+
 // Peer has one address, it manage all connections base on this address
 type peer struct {
 	serviceName    string
@@ -106,15 +275,19 @@ func (p *peer) Reset(addr net.Addr) {
 }
 
 // Get picks up connection from ring or dial a new one.
-func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, addr string) (net.Conn, error) {
+func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, addr string, w *watcher) (net.Conn, error) {
 	for {
 		conn, _ := p.ring.Pop().(*longConn)
 		if conn == nil {
 			break
 		}
+		// remove the connection from the watcher
+		w.Remove(conn)
+
 		p.globalIdle.Dec()
 		if conn.IsActive() {
 			reporter.ReuseSucceed(Long, p.serviceName, p.addr)
+
 			return conn, nil
 		}
 		_ = conn.Conn.Close()
@@ -162,6 +335,7 @@ type LongPool struct {
 	reporter Reporter
 	peerMap  sync.Map
 	newPeer  func(net.Addr) *peer
+	watcher  *watcher
 }
 
 func (lp *LongPool) getPeer(addr netAddr) *peer {
@@ -178,7 +352,7 @@ func (lp *LongPool) getPeer(addr netAddr) *peer {
 func (lp *LongPool) Get(ctx context.Context, network, address string, opt remote.ConnOption) (net.Conn, error) {
 	addr := netAddr{network, address}
 	p := lp.getPeer(addr)
-	return p.Get(opt.Dialer, opt.ConnectTimeout, lp.reporter, address)
+	return p.Get(opt.Dialer, opt.ConnectTimeout, lp.reporter, address, lp.watcher)
 }
 
 // Put implements the ConnPool interface.
@@ -193,6 +367,8 @@ func (lp *LongPool) Put(conn net.Conn) error {
 	p, ok := lp.peerMap.Load(na)
 	if ok {
 		p.(*peer).put(c)
+		// add the connection into the watcher
+		lp.watcher.Add(c)
 		return nil
 	}
 	return c.Conn.Close()
@@ -239,6 +415,8 @@ func (lp *LongPool) Close() error {
 		v.Close()
 		return true
 	})
+
+	lp.watcher.Close()
 	return nil
 }
 
@@ -250,7 +428,10 @@ func (lp *LongPool) EnableReporter() {
 // NewLongPool creates a long pool using the given IdleConfig.
 func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 	limit := utils.NewMaxCounter(idlConfig.MaxIdleGlobal)
-	return &LongPool{
+	// TODO: set idleCheckInterval
+	idleCheckInterval := idlConfig.MaxIdleTimeout / 2
+
+	lp := &LongPool{
 		reporter: &DummyReporter{},
 		newPeer: func(addr net.Addr) *peer {
 			return newPeer(
@@ -260,5 +441,7 @@ func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 				idlConfig.MaxIdleTimeout,
 				limit)
 		},
+		watcher: newWatcher(idleCheckInterval),
 	}
+	return lp
 }
