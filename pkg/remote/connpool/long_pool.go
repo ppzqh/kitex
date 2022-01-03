@@ -18,13 +18,15 @@
 package connpool
 
 import (
-	"container/heap"
 	"context"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"net"
 	"reflect"
 	"sync"
 	"time"
+	"unsafe"
 
+	"github.com/bytedance/gopkg/collection/lscq"
 	"github.com/cloudwego/kitex/pkg/connpool"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/utils"
@@ -53,6 +55,7 @@ type longConn struct {
 	sync.RWMutex
 	deadline time.Time
 	address  string
+	status   bool
 }
 
 // Close implements the net.Conn interface.
@@ -75,84 +78,8 @@ func (c *longConn) IsActive() bool {
 	return time.Now().Before(c.deadline)
 }
 
-// longConnQueue implements the heap.Interface
-type longConnQueue []*longConn
-
-func (q longConnQueue) Len() int { return len(q) }
-
-func (q longConnQueue) Less(i, j int) bool {
-	return q[i].deadline.Before(q[j].deadline)
-}
-
-func (q longConnQueue) Swap(i, j int) {
-	q[i], q[j] = q[j], q[i]
-}
-
-func (q *longConnQueue) Push(c interface{}) {
-	conn := c.(*longConn)
-	*q = append(*q, conn)
-}
-
-func (q *longConnQueue) Pop() interface{} {
-	var item interface{}
-	n := len(*q)
-	*q, item = (*q)[0:n-1], (*q)[n-1]
-	return item
-}
-
-// idleConnQueue encapsulates the longConnQueue and provides functions for the watcher to use
-type idleConnQueue struct {
-	connQueue *longConnQueue
-	closed    bool
-}
-
-func (q *idleConnQueue) Pop() net.Conn {
-	if q.connQueue == nil {
-		return nil
-	}
-	return heap.Pop(q.connQueue).(net.Conn)
-}
-
-func (q *idleConnQueue) Push(conn net.Conn) {
-	heap.Push(q.connQueue, conn)
-}
-
-// Remove deletes conn from the connQueue
-func (q *idleConnQueue) Remove(conn net.Conn) {
-	// there may be duplicate items in the heap
-	for i := 0; i < q.connQueue.Len(); i++ {
-		if c := (*q.connQueue)[i]; c == conn {
-			heap.Remove(q.connQueue, i)
-			i--
-		}
-	}
-}
-
-func (q *idleConnQueue) Top() net.Conn {
-	if q.connQueue == nil || q.connQueue.Len() == 0 {
-		return nil
-	}
-	return (*q.connQueue)[0]
-}
-
-func (q *idleConnQueue) Close() {
-	q.connQueue = nil
-	q.closed = true
-}
-
-func (q *idleConnQueue) isClosed() bool {
-	return q.closed
-}
-
-func newIdleConnQueue() *idleConnQueue {
-	q := &idleConnQueue{connQueue: new(longConnQueue)}
-	heap.Init(q.connQueue)
-	return q
-}
-
 type watcher struct {
-	sync.Mutex
-	connQueue     *idleConnQueue // Store all idle connections. Put when longPool.Put() puts back a connection.
+	idleConnQueue *lscq.PointerQueue // Store all idle connections. Put when longPool.Put() puts back a connection.
 	closedCh      chan struct{}
 	checkInterval time.Duration
 }
@@ -161,85 +88,71 @@ func newWatcher(checkInterval time.Duration) *watcher {
 	w := &watcher{
 		closedCh:      make(chan struct{}),
 		checkInterval: checkInterval,
-		connQueue:     newIdleConnQueue(),
+		idleConnQueue: lscq.NewPointer(),
 	}
-	if checkInterval > 0 {
-		w.Watch()
-	}
+	go w.Watch()
 	return w
 }
 
 // Add adds one connection into the connQueue of watcher
-func (w *watcher) Add(conn net.Conn) {
-	w.Lock()
-	defer w.Unlock()
-
+func (w *watcher) Add(conn *longConn) {
 	if conn == nil {
 		return
 	}
-	w.connQueue.Push(conn)
+	conn.status = false
+	w.idleConnQueue.Enqueue(unsafe.Pointer(conn))
 }
 
 // Remove removes the connection from the watcher
-func (w *watcher) Remove(conn net.Conn) {
-	w.Lock()
-	defer w.Unlock()
-
+func (w *watcher) Remove(conn *longConn) {
 	if conn == nil {
 		return
 	}
-	w.connQueue.Remove(conn)
+	// Set the status to inuse instead of removing it from the queue
+	conn.status = true
 }
 
 // Watch starts the watcher to monitor all connections in connQueue
 func (w *watcher) Watch() {
-	go func() {
-		ticker := time.NewTicker(w.checkInterval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(w.checkInterval)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-w.closedCh:
-				break
-			case <-ticker.C:
-				// TODO: check if the pool has been closed
-				w.Lock()
-				w.cleanStaleConn()
-				// set the timer to the next deadline
-				conn := w.connQueue.Top()
-				var d time.Duration
-				if conn != nil {
-					if next := conn.(*longConn).deadline.Sub(time.Now()); next > 0 {
-						d = next
-					}
-				} else {
-					d = w.checkInterval
-				}
-				ticker.Reset(d)
-				w.Unlock()
-			}
+	for {
+		select {
+		case <-w.closedCh:
+			break
+		case <-ticker.C:
+			// TODO: check if the pool has been closed
+			w.cleanStaleConn()
 		}
-	}()
+	}
 }
 
 // Close stops the watcher
 func (w *watcher) Close() {
 	close(w.closedCh)
-	w.connQueue.Close()
 }
 
 // cleanStaleConn checks all the connections and close inactive ones.
 func (w *watcher) cleanStaleConn() {
 	for {
-		if w.connQueue.isClosed() {
+		// no more stale connection
+		conn, ok := w.idleConnQueue.Dequeue()
+		if ok {
+			if conn != nil {
+				if (*longConn)(conn).IsActive() || (*longConn)(conn).status {
+					w.idleConnQueue.Enqueue(conn)
+					break
+				} else {
+					// clean this stale connection
+					//fmt.Println("cleaning")
+					klog.Info("cleaning stale connection")
+					_ = (*longConn)(conn).Conn.Close()
+				}
+			}
+		} else {
 			break
 		}
-		// no more stale connection
-		if conn := w.connQueue.Top(); conn == nil || conn.(*longConn).IsActive() {
-			return
-		}
-		// clean this stale connection
-		_ = w.connQueue.Pop().(*longConn).Conn.Close()
 	}
 }
 
@@ -281,13 +194,12 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		if conn == nil {
 			break
 		}
-		// remove the connection from the watcher
-		w.Remove(conn)
 
 		p.globalIdle.Dec()
 		if conn.IsActive() {
 			reporter.ReuseSucceed(Long, p.serviceName, p.addr)
-
+			// remove the connection from the watcher
+			w.Remove(conn)
 			return conn, nil
 		}
 		_ = conn.Conn.Close()

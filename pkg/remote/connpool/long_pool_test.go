@@ -20,17 +20,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
-	"net"
-	"sync"
-	"testing"
-	"time"
-
 	"github.com/cloudwego/kitex/internal/mocks"
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/connpool"
 	dialer "github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/utils"
+	"math/rand"
+	"net"
+	"sync"
+	"testing"
+	"time"
 )
 
 var (
@@ -619,10 +618,17 @@ func BenchmarkLongPoolGetRand2000Mesh(b *testing.B) {
 	})
 }
 
-func getIdleConnListLen(lp *LongPool) int {
-	lp.watcher.Lock()
-	defer lp.watcher.Unlock()
-	return lp.watcher.connQueue.connQueue.Len()
+func idleConnQueueEmpty(lp *LongPool) bool {
+	for {
+		conn, ok := lp.watcher.idleConnQueue.Dequeue()
+		if ok {
+			if !(*longConn)(conn).IsActive() {
+				return false
+			}
+		} else {
+			return true
+		}
+	}
 }
 
 func TestWatcherCleanIdleConnOne(t *testing.T) {
@@ -645,9 +651,8 @@ func TestWatcherCleanIdleConnOne(t *testing.T) {
 		test.Assert(t, err == nil)
 		err = lp.Put(conn)
 		test.Assert(t, err == nil)
-		test.Assert(t, getIdleConnListLen(lp) == 1)
 		time.Sleep(maxIdleTimeout * 2)
-		test.Assert(t, getIdleConnListLen(lp) == 0)
+		test.Assert(t, idleConnQueueEmpty(lp) == true)
 	}
 }
 
@@ -678,5 +683,5 @@ func BenchmarkWatcherCleanIdleConnMultiple(b *testing.B) {
 		}
 	})
 	time.Sleep(maxIdleTimeout * 2)
-	test.Assert(b, getIdleConnListLen(p) == 0)
+	test.Assert(b, idleConnQueueEmpty(p) == true)
 }

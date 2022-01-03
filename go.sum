@@ -7,6 +7,8 @@ github.com/apache/thrift v0.13.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb
 github.com/bytedance/gopkg v0.0.0-20210705062217-74c74ebadcae/go.mod h1:birsdqRCbwnckJbdAvcSao+AzOyibVEoWB55MjpYpB8=
 github.com/bytedance/gopkg v0.0.0-20210910103821-e4efae9c17c3 h1:jPrNjVwtUPmYBV0Mn+okcc+qa+y6hXfJAU6fApVlZ18=
 github.com/bytedance/gopkg v0.0.0-20210910103821-e4efae9c17c3/go.mod h1:birsdqRCbwnckJbdAvcSao+AzOyibVEoWB55MjpYpB8=
+github.com/bytedance/gopkg v0.0.0-20211117073611-9a8af3eefa95 h1:b66sEfs3oHWxeOgJbZYGmA8UZoUoqyvCxY1RkBLzVjI=
+github.com/bytedance/gopkg v0.0.0-20211117073611-9a8af3eefa95/go.mod h1:birsdqRCbwnckJbdAvcSao+AzOyibVEoWB55MjpYpB8=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/cespare/xxhash v1.1.0 h1:a6HrQnmkObjyL+Gs60czilIUGqrzKutQD6XZog3p+ko=
 github.com/cespare/xxhash v1.1.0/go.mod h1:XrSqR1VqqWfGrhpAt58auRo0WTKS1nRRg3ghfAqPWnc=
