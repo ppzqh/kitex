@@ -19,17 +19,15 @@ package connpool
 
 import (
 	"context"
-	"github.com/cloudwego/kitex/pkg/klog"
+	"github.com/bytedance/gopkg/collection/lscq"
+	"github.com/cloudwego/kitex/pkg/connpool"
+	"github.com/cloudwego/kitex/pkg/remote"
+	"github.com/cloudwego/kitex/pkg/utils"
 	"net"
 	"reflect"
 	"sync"
 	"time"
 	"unsafe"
-
-	"github.com/bytedance/gopkg/collection/lscq"
-	"github.com/cloudwego/kitex/pkg/connpool"
-	"github.com/cloudwego/kitex/pkg/remote"
-	"github.com/cloudwego/kitex/pkg/utils"
 )
 
 var (
@@ -99,17 +97,7 @@ func (w *watcher) Add(conn *longConn) {
 	if conn == nil {
 		return
 	}
-	conn.status = false
 	w.idleConnQueue.Enqueue(unsafe.Pointer(conn))
-}
-
-// Remove removes the connection from the watcher
-func (w *watcher) Remove(conn *longConn) {
-	if conn == nil {
-		return
-	}
-	// Set the status to inuse instead of removing it from the queue
-	conn.status = true
 }
 
 // Watch starts the watcher to monitor all connections in connQueue
@@ -122,8 +110,10 @@ func (w *watcher) Watch() {
 		case <-w.closedCh:
 			break
 		case <-ticker.C:
-			// TODO: check if the pool has been closed
-			w.cleanStaleConn()
+			// check if the pool has been closed
+			if w.idleConnQueue != nil {
+				w.cleanStaleConn()
+			}
 		}
 	}
 }
@@ -131,12 +121,12 @@ func (w *watcher) Watch() {
 // Close stops the watcher
 func (w *watcher) Close() {
 	close(w.closedCh)
+	w.idleConnQueue = nil
 }
 
 // cleanStaleConn checks all the connections and close inactive ones.
 func (w *watcher) cleanStaleConn() {
 	for {
-		// no more stale connection
 		conn, ok := w.idleConnQueue.Dequeue()
 		if ok {
 			if conn != nil {
@@ -145,8 +135,6 @@ func (w *watcher) cleanStaleConn() {
 					break
 				} else {
 					// clean this stale connection
-					//fmt.Println("cleaning")
-					klog.Info("cleaning stale connection")
 					_ = (*longConn)(conn).Conn.Close()
 				}
 			}
@@ -198,8 +186,8 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		p.globalIdle.Dec()
 		if conn.IsActive() {
 			reporter.ReuseSucceed(Long, p.serviceName, p.addr)
-			// remove the connection from the watcher
-			w.Remove(conn)
+			// set the connection status to "inuse"
+			conn.status = true
 			return conn, nil
 		}
 		_ = conn.Conn.Close()
@@ -210,11 +198,13 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		return nil, err
 	}
 	reporter.ConnSucceed(Long, p.serviceName, p.addr)
-	return &longConn{
+	lc := &longConn{
 		Conn:     conn,
 		deadline: time.Now().Add(p.maxIdleTimeout),
 		address:  addr,
-	}, nil
+	}
+	w.Add(lc)
+	return lc, nil
 }
 
 func (p *peer) put(c *longConn) error {
@@ -279,8 +269,8 @@ func (lp *LongPool) Put(conn net.Conn) error {
 	p, ok := lp.peerMap.Load(na)
 	if ok {
 		p.(*peer).put(c)
-		// add the connection into the watcher
-		lp.watcher.Add(c)
+		// set the connection status to "idle"
+		c.status = false
 		return nil
 	}
 	return c.Conn.Close()
