@@ -301,6 +301,7 @@ func readKVInfo(idx int, buf []byte, message remote.Message) error {
 			return fmt.Errorf("invalid infoIDType[%#x]", infoID)
 		}
 	}
+	klog.Info(strInfo)
 	return nil
 }
 
