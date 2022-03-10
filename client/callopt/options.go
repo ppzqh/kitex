@@ -184,7 +184,8 @@ func Apply(cos []Option, cfg rpcinfo.RPCConfig, svr remoteinfo.RemoteInfo, locks
 	}
 	buf.WriteByte(']')
 
-	co.locks.ApplyLocks(cfg, svr)
+	// do not apply callopt lock in this version
+	//co.locks.ApplyLocks(cfg, svr)
 	co.Recycle()
 	return buf.String()
 }
