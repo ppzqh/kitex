@@ -10,12 +10,15 @@ require (
 	github.com/cloudwego/netpoll v0.2.0
 	github.com/cloudwego/netpoll-http2 v0.0.6
 	github.com/cloudwego/thriftgo v0.1.2
+	github.com/envoyproxy/go-control-plane v0.10.2-0.20220325150756-54a2dc076b47
+	github.com/golang/protobuf v1.5.2
 	github.com/json-iterator/go v1.1.11
 	github.com/tidwall/gjson v1.9.3
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20211205182925-97ca703d548d
 	golang.org/x/tools v0.1.0
 	google.golang.org/genproto v0.0.0-20210513213006-bf773b8c8384
-	google.golang.org/protobuf v1.26.0
+	google.golang.org/grpc v1.36.1
+	google.golang.org/protobuf v1.27.1
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 )
