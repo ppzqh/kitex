@@ -618,3 +618,81 @@ func BenchmarkLongPoolGetRand2000Mesh(b *testing.B) {
 		}
 	})
 }
+
+func getActiveConnNum(lp *LongPool) int {
+	count := 0
+	lp.peerMap.Range(func(key, value interface{}) bool {
+		for {
+			conn, _ := value.(*peer).conns.Pop().(*longConn)
+			if conn == nil {
+				break
+			}
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+func TestCleanStaleConnOne(t *testing.T) {
+	maxIdleTimeout := 100 * time.Millisecond
+	lp := newLongPoolForTest(10, 50, maxIdleTimeout)
+
+	d := &dialer.SynthesizedDialer{
+		DialFunc: func(network, address string, timeout time.Duration) (net.Conn, error) {
+			na := utils.NewNetAddr(network, address)
+			return &mocks.Conn{
+				RemoteAddrFunc: func() net.Addr { return na },
+			}, nil
+		},
+	}
+	opt := dialer.ConnOption{Dialer: d, ConnectTimeout: time.Second}
+	addr := "127.0.0.1:8000"
+	count := 100
+	for i := 0; i < count; i++ {
+		conn, err := lp.Get(context.TODO(), "tcp", addr, opt)
+		test.Assert(t, err == nil)
+		err = lp.Put(conn)
+		test.Assert(t, err == nil)
+	}
+
+	time.Sleep(2 * maxIdleTimeout)
+	test.Assert(t, getActiveConnNum(lp) == 0)
+}
+
+func TestCleanStaleConnMultiple(t *testing.T) {
+	maxIdleTimeout := 100 * time.Millisecond
+	lp := newLongPoolForTest(100, 2000, maxIdleTimeout)
+
+	d := &dialer.SynthesizedDialer{
+		DialFunc: func(network, address string, timeout time.Duration) (net.Conn, error) {
+			na := utils.NewNetAddr(network, address)
+			return &mocks.Conn{
+				RemoteAddrFunc: func() net.Addr { return na },
+			}, nil
+		},
+	}
+	opt := dialer.ConnOption{Dialer: d, ConnectTimeout: time.Second}
+
+	var addrs []string
+	addrNum, basePort := 100, 8000
+	for i := 0; i < addrNum; i++ {
+		addrs = append(addrs, fmt.Sprintf("127.0.0.1:%d", basePort+rand.Intn(10000)))
+	}
+	connPerAddr := 10
+	for _, addr := range addrs {
+		conns := make([]net.Conn, connPerAddr)
+		for i := 0; i < connPerAddr; i++ {
+			conn, err := lp.Get(context.TODO(), "tcp", addr, opt)
+			test.Assert(t, err == nil)
+			conns[i] = conn
+		}
+		for _, conn := range conns {
+			err := lp.Put(conn)
+			test.Assert(t, err == nil)
+		}
+	}
+	test.Assert(t, getActiveConnNum(lp) == addrNum*connPerAddr)
+	time.Sleep(2 * maxIdleTimeout)
+	test.Assert(t, getActiveConnNum(lp) == 0)
+}

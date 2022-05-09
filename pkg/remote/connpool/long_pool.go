@@ -79,7 +79,7 @@ func (c *longConn) IsActive() bool {
 type peer struct {
 	serviceName    string
 	addr           net.Addr
-	ring           *utils.Ring
+	conns          *utils.Stack
 	globalIdle     *utils.MaxCounter
 	maxIdleTimeout time.Duration
 }
@@ -94,7 +94,7 @@ func newPeer(
 	return &peer{
 		serviceName:    serviceName,
 		addr:           addr,
-		ring:           utils.NewRing(maxIdle),
+		conns:          utils.NewStack(maxIdle),
 		globalIdle:     globalIdle,
 		maxIdleTimeout: maxIdleTimeout,
 	}
@@ -106,10 +106,11 @@ func (p *peer) Reset(addr net.Addr) {
 	p.Close()
 }
 
-// Get picks up connection from ring or dial a new one.
+// Get picks up connection from conns or dial a new one.
 func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, addr string) (net.Conn, error) {
+	// Try to get connection from pool first
 	for {
-		conn, _ := p.ring.Pop().(*longConn)
+		conn, _ := p.conns.Pop().(*longConn)
 		if conn == nil {
 			break
 		}
@@ -120,6 +121,7 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		}
 		_ = conn.Conn.Close()
 	}
+	// New connection
 	conn, err := d.DialTimeout(p.addr.Network(), p.addr.String(), timeout)
 	if err != nil {
 		reporter.ConnFailed(Long, p.serviceName, p.addr)
@@ -138,7 +140,7 @@ func (p *peer) put(c *longConn) error {
 		return c.Conn.Close()
 	}
 	c.deadline = time.Now().Add(p.maxIdleTimeout)
-	err := p.ring.Push(c)
+	err := p.conns.Push(c)
 	if err != nil {
 		p.globalIdle.Dec()
 		return c.Conn.Close()
@@ -146,10 +148,10 @@ func (p *peer) put(c *longConn) error {
 	return nil
 }
 
-// Close closes the peer and all the connections in the ring.
+// Close closes the peer and all the connections in the conns.
 func (p *peer) Close() {
 	for {
-		conn, _ := p.ring.Pop().(*longConn)
+		conn, _ := p.conns.Pop().(*longConn)
 		if conn == nil {
 			break
 		}
@@ -163,6 +165,7 @@ type LongPool struct {
 	reporter Reporter
 	peerMap  sync.Map
 	newPeer  func(net.Addr) *peer
+	closeCh  chan struct{}
 }
 
 func (lp *LongPool) getPeer(addr netAddr) *peer {
@@ -221,7 +224,7 @@ func (lp *LongPool) Clean(network, address string) {
 func (lp *LongPool) Dump() interface{} {
 	m := make(map[string]interface{})
 	lp.peerMap.Range(func(key, value interface{}) bool {
-		t := value.(*peer).ring.Dump()
+		t := value.(*peer).conns.Dump()
 		arr := reflect.ValueOf(t).FieldByName("Array").Interface().([]interface{})
 		for i := range arr {
 			arr[i] = arr[i].(*longConn).deadline
@@ -240,6 +243,7 @@ func (lp *LongPool) Close() error {
 		v.Close()
 		return true
 	})
+	close(lp.closeCh)
 	return nil
 }
 
@@ -254,10 +258,43 @@ func (lp *LongPool) WarmUp(eh warmup.ErrorHandling, wuo *warmup.PoolOption, co r
 	return h.WarmUp(wuo, lp, co)
 }
 
+func (lp *LongPool) cleaner(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			lp.cleanIdleConn()
+			ticker.Reset(interval)
+		case <-lp.closeCh:
+			return
+		}
+	}
+}
+
+func (lp *LongPool) cleanIdleConn() {
+	// for each peer, check if the bottom connection is active.
+	// If active, it means that all other connections are still active. Break the cleaning loop.
+	// If not, clean it and continue the loop.
+	lp.peerMap.Range(func(key, value interface{}) bool {
+		p := value.(*peer)
+		for {
+			if b := p.conns.Bottom(); b == nil || b.(*longConn).IsActive() {
+				break
+			}
+			conn := p.conns.PopBottom().(*longConn)
+			_ = conn.RawConn().Close()
+			p.globalIdle.Dec()
+		}
+		return true
+	})
+}
+
 // NewLongPool creates a long pool using the given IdleConfig.
 func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 	limit := utils.NewMaxCounter(idlConfig.MaxIdleGlobal)
-	return &LongPool{
+	lp := &LongPool{
 		reporter: &DummyReporter{},
 		newPeer: func(addr net.Addr) *peer {
 			return newPeer(
@@ -268,4 +305,8 @@ func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 				limit)
 		},
 	}
+	// TODO: set the frequency
+	go lp.cleaner(idlConfig.MaxIdleTimeout)
+
+	return lp
 }
