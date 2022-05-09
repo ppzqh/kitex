@@ -10,7 +10,7 @@ type BootstrapConfig struct {
 func newBootstrapConfig() *BootstrapConfig {
 	addr := ":8080"
 	n := &envoy_config_core_v3.Node{
-		Id: "mesh", // TODO: load id from config file
+		Id: "mesh", // TODO: load id from config file: env "GRPC_XDS_BOOTSTRAP"
 	}
 	cfg := &BootstrapConfig{
 		xdsSvrAddr: addr,

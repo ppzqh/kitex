@@ -16,6 +16,8 @@ type XdsResolver struct {
 
 // Target should return a description for the given target that is suitable for being a key for cache.
 func (r *XdsResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (description string) {
+	// 1. routeConfig (RDS)
+	// 2. cluster (CDS)
 	return target.ServiceName()
 }
 
