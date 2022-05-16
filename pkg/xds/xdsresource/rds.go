@@ -1,14 +1,21 @@
 package xdsresource
 
 import (
+	"fmt"
 	v3routepb "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/golang/protobuf/ptypes/any"
+	"google.golang.org/protobuf/proto"
 )
 
 type RouteAction struct {
 }
 
 type RouteConfigResource struct {
+	name string
+}
+
+func (res *RouteConfigResource) Name() string {
+	return res.name
 }
 
 type Route struct {
@@ -42,6 +49,26 @@ func unmarshalRoute(routeConfig *v3routepb.RouteConfiguration) {
 }
 
 func UnmarshalRDS(rawResources []*any.Any) map[string]RouteConfigResource {
-	//v3routepb.RouteConfiguration{}
-	return nil
+	ret := make(map[string]RouteConfigResource, len(rawResources))
+
+	for _, r := range rawResources {
+		rcfg := &v3routepb.RouteConfiguration{}
+		if err := proto.Unmarshal(r.GetValue(), rcfg); err != nil {
+			panic("[xds] RDS Unmarshal error")
+		}
+		// TODO: how to store?
+		name := rcfg.GetName()
+		fmt.Println("[xds] routeConfig's name:", name)
+		for _, vh := range rcfg.GetVirtualHosts() {
+			fmt.Println("[xds] virtual host name:", vh.GetName())
+			routes := vh.GetRoutes()
+			for _, rs := range routes {
+				fmt.Println("[xds] route:", rs.GetRoute().String())
+			}
+		}
+		ret[name] = RouteConfigResource{
+			name: name,
+		}
+	}
+	return ret
 }

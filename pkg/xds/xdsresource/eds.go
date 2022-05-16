@@ -1,6 +1,7 @@
 package xdsresource
 
 import (
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/utils"
 	v3endpointpb "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -58,6 +59,7 @@ func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) End
 			}
 			// TODO: add healthcheck
 			// healthcheck := ep.GetEndpoint().HealthCheckConfig
+			fmt.Println("[xds] endpoint: ", eps[idx2].Address())
 		}
 		localities[idx1] = &Locality{
 			Endpoints: eps,
@@ -78,6 +80,7 @@ func UnmarshalEDS(rawResources []*any.Any) map[string]EndpointsResource {
 			panic("Unmarshal error")
 		}
 		cluster := unmarshalClusterLoadAssignment(cla)
+		fmt.Println("[xds] edsCluster's name:", cla.GetClusterName())
 		ret[cla.GetClusterName()] = cluster
 	}
 	return ret

@@ -40,6 +40,10 @@ func (m *xdsResourceManager) Get(resourceType xdsresource.ResourceType, resource
 	return m.cache.Get(resourceType, resourceName)
 }
 
+func (m *xdsResourceManager) GetAll(resourceType xdsresource.ResourceType) interface{} {
+	return m.cache.GetAll(resourceType)
+}
+
 func (m *xdsResourceManager) Subscribe(resourceType xdsresource.ResourceType, resourceName string) error {
 	// subscribe this resource
 	m.client.Subscribe(resourceType, resourceName)
@@ -74,6 +78,16 @@ func (c *xdsResourceCache) Get(resourceType xdsresource.ResourceType, resourceNa
 
 	if r := c.cache[resourceType]; r != nil {
 		return r[resourceName]
+	}
+	return nil
+}
+
+func (c *xdsResourceCache) GetAll(resourceType xdsresource.ResourceType) interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if r := c.cache[resourceType]; r != nil {
+		return r
 	}
 	return nil
 }

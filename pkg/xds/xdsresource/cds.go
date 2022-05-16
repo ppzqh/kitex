@@ -1,9 +1,11 @@
 package xdsresource
 
 import (
+	"fmt"
 	v3clusterpb "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
+	"strconv"
 )
 
 type ClusterDiscoveryType int
@@ -28,8 +30,27 @@ type ClusterResource struct {
 	//inlineEndpoints *EndpointsResource
 }
 
+func (r *ClusterResource) Name() string {
+	return r.name
+}
+
+func (r *ClusterResource) ClusterType() string {
+	return strconv.Itoa(int(r.discoveryType))
+}
+
+func (r *ClusterResource) LbPolicy() string {
+	switch r.lbPolicy {
+	case ClusterLbRoundRobin:
+		return "roundrobin"
+	case ClusterLbRingHash:
+		return "ringhash"
+	}
+	return ""
+}
+
 func UnmarshalCDS(rawResources []*any.Any) map[string]ClusterResource {
 	ret := make(map[string]ClusterResource, len(rawResources))
+	fmt.Println("[xds] cluster resource, length:", len(rawResources))
 	for _, r := range rawResources {
 		c := &v3clusterpb.Cluster{}
 		if err := proto.Unmarshal(r.GetValue(), c); err != nil {
@@ -45,6 +66,9 @@ func UnmarshalCDS(rawResources []*any.Any) map[string]ClusterResource {
 			// TODO: cds may include endpoint info
 			//inlineEndpoints: unmarshalClusterLoadAssignment(c.GetLoadAssignment()),
 		}
+		fmt.Println("[xds] cluster resource name:", c.GetName())
+		fmt.Println("[xds] cluster discovery type:", c.GetType())
+		fmt.Println("[xds] cluster eds name:", c.GetEdsClusterConfig().GetServiceName())
 		ret[c.GetName()] = res
 	}
 
