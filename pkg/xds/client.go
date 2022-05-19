@@ -158,7 +158,7 @@ func (c *xdsClient) run() {
 				klog.Infof("[xds] stop ads client sender")
 				return
 			case <-timer.C:
-				c.refresh()
+				//c.refresh()
 				timer.Reset(refreshInterval)
 			default:
 				req := c.popRequest()

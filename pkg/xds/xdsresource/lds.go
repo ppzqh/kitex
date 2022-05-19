@@ -24,14 +24,19 @@ func UnmarshalLDS(rawResources []*any.Any) map[string]ListenerResource {
 		if err := proto.Unmarshal(r.GetValue(), lis); err != nil {
 			panic("[xds] LDS Unmarshal error")
 		}
-
 		apiLis := &v3httppb.HttpConnectionManager{}
 		if err := proto.Unmarshal(lis.GetApiListener().GetApiListener().GetValue(), apiLis); err != nil {
 			panic("failed to unmarshal api_listner")
 		}
 
 		fmt.Println("[xds] LDS(routeConfig name):", apiLis.GetRds().RouteConfigName)
+		fmt.Println("[xds] api_listener:", apiLis.String())
+		// name
 		name := apiLis.GetRds().RouteConfigName
+		// inline RDS
+		if apiLis.GetRouteConfig() != nil {
+			fmt.Println("[xds] LDS Inline RDS", apiLis.GetRouteConfig().String())
+		}
 		ret[name] = ListenerResource{
 			name: name,
 		}

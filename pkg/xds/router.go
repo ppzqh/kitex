@@ -1,6 +1,7 @@
 package xds
 
 import (
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
@@ -63,4 +64,27 @@ func (r *xdsTimeoutProvider) Timeouts(ri rpcinfo.RPCInfo) rpcinfo.Timeouts {
 	return config
 }
 
+func XDSRouterTest() {
+	tags := make(map[string]string)
+	key, value := "end-user", "jason"
+	tags[key] = value
+
+	resourceName := "outbound|9080||reviews.default.svc.cluster.local"
+	res := GetXdsResourceManager().Get(xdsresource.RouteConfigType, resourceName)
+	rds, ok := res.(xdsresource.RouteConfigResource)
+	if !ok {
+		panic("wrong route")
+	}
+	// match the first one
+	for _, vh := range rds.VirtualHosts() {
+
+		for _, r := range vh.Routes() {
+			match := r.Match()
+			if match.Matched(tags) {
+				fmt.Printf("[!!!!XDS TEST!!!!]: route matched \n")
+				break
+			}
+		}
+	}
+}
 
