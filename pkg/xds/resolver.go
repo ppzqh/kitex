@@ -2,10 +2,11 @@ package xds
 
 import (
 	"context"
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/discovery"
 	"github.com/cloudwego/kitex/pkg/kerrors"
+	"github.com/cloudwego/kitex/pkg/router"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/pkg/xds"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
 )
 
@@ -16,24 +17,38 @@ type XdsResolver struct {
 
 // Target should return a description for the given target that is suitable for being a key for cache.
 func (r *XdsResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (description string) {
-	// 1. routeConfig (RDS)
-	// 2. cluster (CDS)
-	return target.ServiceName()
+	dest, ok := target.Tag(router.RouterDestinationKey)
+	fmt.Println("[xds resolver] target:", dest)
+	if !ok {
+		return target.ServiceName()
+	}
+	return dest
 }
 
 // Resolve returns a list of instances for the given description of a target.
 func (r *XdsResolver) Resolve(ctx context.Context, desc string) (discovery.Result, error) {
-	mng := xds.GetXdsResourceManager()
+	mng := GetXdsResourceManager()
+	fmt.Println("[xds resolver] description:", desc)
+	cds := mng.Get(xdsresource.ClusterType, desc)
+	if cds == nil {
+		panic("[xds resolver] get CDS failed")
+	}
 
 	resource := mng.Get(xdsresource.EndpointsType, desc)
+	if resource == nil {
+		panic("[xds resolver] get EDS failed")
+	}
+
 	cla, ok := resource.(xdsresource.EndpointsResource)
 	if !ok {
+		panic("[xds resolver] cast failed")
 		return discovery.Result{}, kerrors.ErrServiceDiscovery
 	}
 	eds := cla.Localities[0].Endpoints
 	instances := make([]discovery.Instance, len(eds))
 	for i, e := range eds {
 		instances[i] = e
+		fmt.Println(e.Address())
 	}
 	res := discovery.Result{
 		Cacheable: false,
