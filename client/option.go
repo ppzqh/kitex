@@ -19,6 +19,9 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/router"
+	"github.com/cloudwego/kitex/pkg/xds"
+	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
 	"net"
 	"strings"
 	"time"
@@ -158,6 +161,27 @@ func WithHostPorts(hostports ...string) Option {
 				return o.Targets
 			},
 		}
+	}}
+}
+
+func WithXDSSuite() Option {
+	return Option{F: func(o *client.Options, di *utils.Slice) {
+		// init xds
+		m := xds.GetXdsResourceManager()
+		fmt.Println("[xds] service name: ", o.Svr.ServiceName)
+		m.Subscribe(xdsresource.ListenerType, o.Svr.ServiceName)
+
+		o.Router = &xds.XdsRouter{}
+		o.Resolver = &xds.XdsResolver{}
+	}}
+}
+
+// WithRouter provides the router for kitex client.
+func WithRouter(r router.Router) Option {
+	return Option{F: func(o *client.Options, di *utils.Slice) {
+		di.Push(fmt.Sprintf("WithRouter(%T)", r))
+
+		o.Router = r
 	}}
 }
 

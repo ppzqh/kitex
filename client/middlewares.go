@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	router2 "github.com/cloudwego/kitex/pkg/router"
 	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -68,6 +69,34 @@ func discoveryEventHandler(name string, bus event.Bus, queue event.Queue) func(d
 				"Removed": wrapInstances(d.Removed),
 			},
 		})
+	}
+}
+
+func newRouterMWBuilder(opt *client.Options) endpoint.MiddlewareBuilder {
+	router := opt.Router
+	return func(ctx context.Context) endpoint.Middleware {
+		return func(next endpoint.Endpoint) endpoint.Endpoint {
+			return func(ctx context.Context, request, response interface{}) error {
+				time.Sleep(time.Second)
+				if router == nil {
+					return next(ctx, request, response)
+				}
+				ri := rpcinfo.GetRPCInfo(ctx)
+				dest := ri.To()
+				if dest == nil {
+					return kerrors.ErrNoDestService
+				}
+				rcfg := router.Route(ri)
+				key := router2.RouterDestinationKey
+				// set destination
+				_ = remoteinfo.AsRemoteInfo(dest).SetTag(key, rcfg.Destination)
+				remoteinfo.AsRemoteInfo(dest).SetTagLock(key)
+				// set timeout
+				_ = rpcinfo.AsMutableRPCConfig(ri.Config()).SetRPCTimeout(rcfg.RPCTimeout)
+				ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)
+				return next(ctx, request, response)
+			}
+		}
 	}
 }
 

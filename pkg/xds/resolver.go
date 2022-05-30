@@ -33,6 +33,11 @@ func (r *XdsResolver) Resolve(ctx context.Context, desc string) (discovery.Resul
 	if cds == nil {
 		panic("[xds resolver] get CDS failed")
 	}
+	cluster, ok := cds.(xdsresource.ClusterResource)
+	if !ok {
+		panic("[xds resolver] CDS cast failed")
+	}
+	fmt.Println("[xds resolver] endpoint:", cluster.EndpointName())
 
 	resource := mng.Get(xdsresource.EndpointsType, desc)
 	if resource == nil {
@@ -41,8 +46,17 @@ func (r *XdsResolver) Resolve(ctx context.Context, desc string) (discovery.Resul
 
 	cla, ok := resource.(xdsresource.EndpointsResource)
 	if !ok {
-		panic("[xds resolver] cast failed")
+		panic("[xds resolver] EDS cast failed")
 		return discovery.Result{}, kerrors.ErrServiceDiscovery
+	}
+	fmt.Println("[xds resolver], name:", cla.Name)
+	if len(cla.Localities) == 0 {
+		panic("no eds")
+	}
+	for _, l := range cla.Localities {
+		for _, e := range l.Endpoints {
+			fmt.Println(e.Address())
+		}
 	}
 	eds := cla.Localities[0].Endpoints
 	instances := make([]discovery.Instance, len(eds))

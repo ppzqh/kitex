@@ -59,7 +59,7 @@ func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) End
 			}
 			// TODO: add healthcheck
 			// healthcheck := ep.GetEndpoint().HealthCheckConfig
-			fmt.Println("[xds] endpoint: ", eps[idx2].Address())
+			//fmt.Println("[xds] endpoint: ", eps[idx2].Address())
 		}
 		localities[idx1] = &Locality{
 			Endpoints: eps,
@@ -80,7 +80,7 @@ func UnmarshalEDS(rawResources []*any.Any) map[string]EndpointsResource {
 			panic("Unmarshal error")
 		}
 		cluster := unmarshalClusterLoadAssignment(cla)
-		fmt.Println("[xds] edsCluster's name:", cla.GetClusterName())
+		fmt.Println("[xds client] edsCluster's name:", cla.GetClusterName())
 		ret[cla.GetClusterName()] = cluster
 	}
 	return ret

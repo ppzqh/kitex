@@ -6,14 +6,20 @@ import (
 	v3httppb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
+	"strings"
 )
 
 type ListenerResource struct {
-	name string
+	routeConfigName   string
+	inlineRouteConfig RouteConfigResource
 }
 
-func (res *ListenerResource) Name() string {
-	return res.name
+func (res *ListenerResource) RouteConfigName() string {
+	return res.routeConfigName
+}
+
+func (res *ListenerResource) InlineRouteConfig() RouteConfigResource {
+	return res.inlineRouteConfig
 }
 
 func UnmarshalLDS(rawResources []*any.Any) map[string]ListenerResource {
@@ -28,19 +34,32 @@ func UnmarshalLDS(rawResources []*any.Any) map[string]ListenerResource {
 		if err := proto.Unmarshal(lis.GetApiListener().GetApiListener().GetValue(), apiLis); err != nil {
 			panic("failed to unmarshal api_listner")
 		}
+		//fmt.Println("[xds] LDS(routeConfig name):", apiLis.GetRds().RouteConfigName)
+		//fmt.Println("[xds] api_listener:", apiLis.String())
 
-		fmt.Println("[xds] LDS(routeConfig name):", apiLis.GetRds().RouteConfigName)
-		fmt.Println("[xds] api_listener:", apiLis.String())
-		// name
-		name := apiLis.GetRds().RouteConfigName
-		// inline RDS
-		if apiLis.GetRouteConfig() != nil {
-			fmt.Println("[xds] LDS Inline RDS", apiLis.GetRouteConfig().String())
+		var res ListenerResource
+		switch apiLis.RouteSpecifier.(type) {
+		case *v3httppb.HttpConnectionManager_Rds:
+			res = ListenerResource{routeConfigName: apiLis.GetRds().RouteConfigName}
+		case *v3httppb.HttpConnectionManager_RouteConfig:
+			var inlineRDS RouteConfigResource
+			if apiLis.GetRouteConfig() != nil {
+				inlineRDS = unmarshalRouteConfig(apiLis.GetRouteConfig())
+			}
+			res = ListenerResource{
+				routeConfigName:   inlineRDS.Name(),
+				inlineRouteConfig: inlineRDS,
+			}
 		}
-		ret[name] = ListenerResource{
-			name: name,
-		}
+		// TODO: check if the name is correct
+		fmt.Println("[xds] listener:", lis.String())
+		name := parseListenerName(lis.GetName())
+		ret[name] = res
 	}
 
 	return ret
+}
+
+func parseListenerName(name string) string {
+	return strings.Split(name, ":")[0]
 }

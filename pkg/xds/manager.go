@@ -1,6 +1,7 @@
 package xds
 
 import (
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
 	"sync"
 )
@@ -17,6 +18,7 @@ type xdsResourceManager struct {
 
 func GetXdsResourceManager() *xdsResourceManager {
 	once.Do(func() {
+		fmt.Println("[xds] initial xds resource manager")
 		manager = newXdsResourceManager()
 	})
 	if manager == nil {

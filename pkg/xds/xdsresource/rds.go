@@ -27,6 +27,10 @@ type VirtualHost struct {
 	routes []Route
 }
 
+func (vh *VirtualHost) Name() string {
+	return vh.name
+}
+
 func (vh *VirtualHost) Routes() []Route {
 	return vh.routes
 }
@@ -38,16 +42,43 @@ const (
 	Exact
 	Suffix
 	Contains
+	Present
 )
 
+type weightedCluster struct {
+	name   string
+	weight uint32
+}
+
+func (c *weightedCluster) Name() string {
+	return c.name
+}
+
+func (c *weightedCluster) Weight() uint32 {
+	return c.weight
+}
+
 type Route struct {
-	match   RouteMatch
-	cluster string
-	timeout time.Duration
+	match            RouteMatch
+	cluster          string
+	weightedClusters []weightedCluster
+	timeout          time.Duration
 }
 
 func (r *Route) Match() RouteMatch {
 	return r.match
+}
+
+func (r *Route) Cluster() string {
+	return r.cluster
+}
+
+func (r *Route) WeightedClusters() []weightedCluster {
+	return r.weightedClusters
+}
+
+func (r *Route) Timeout() time.Duration {
+	return r.timeout
 }
 
 type RouteMatch struct {
@@ -60,10 +91,11 @@ type RouteMatch struct {
 type RouteMatchHeader struct {
 	name        string
 	value       string
+	present     bool
 	matcherType HeaderMatchType
 }
 
-func (rm *RouteMatch) Matched(tags map[string]string) bool {
+func (rm *RouteMatch) Matched(path string, tags map[string]string) bool {
 	for _, h := range rm.headers {
 		switch h.matcherType {
 		case Exact:
@@ -78,7 +110,7 @@ func (rm *RouteMatch) Matched(tags map[string]string) bool {
 func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) RouteConfigResource {
 	vhs := routeConfig.GetVirtualHosts()
 	virtualHosts := make([]VirtualHost, len(vhs))
-	for i := 0; i < len(virtualHosts); i++ {
+	for i := 0; i < len(vhs); i++ {
 		rs := vhs[i].GetRoutes()
 		routes := make([]Route, len(rs))
 		for j := 0; j < len(rs); j++ {
@@ -99,52 +131,70 @@ func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) RouteConfig
 			hs := match.GetHeaders()
 			headers := make([]RouteMatchHeader, len(hs))
 			for k := 0; k < len(hs); k++ {
+				var header RouteMatchHeader
+				header.name = hs[k].GetName()
+
 				headerSpecifier := hs[k].GetHeaderMatchSpecifier()
-				var value string
-				var matcherType HeaderMatchType
 				switch ht := headerSpecifier.(type) {
 				// new string match
 				case *v3routepb.HeaderMatcher_StringMatch:
 					switch pattern := ht.StringMatch.GetMatchPattern().(type) {
 					case *v3matcherpb.StringMatcher_Exact:
-						value = pattern.Exact
-						matcherType = Exact
+						header.value = pattern.Exact
+						header.matcherType = Exact
 					case *v3matcherpb.StringMatcher_Prefix:
-						value = pattern.Prefix
-						matcherType = Prefix
+						header.value = pattern.Prefix
+						header.matcherType = Prefix
 					case *v3matcherpb.StringMatcher_Suffix:
-						value = pattern.Suffix
-						matcherType = Suffix
+						header.value = pattern.Suffix
+						header.matcherType = Suffix
 					case *v3matcherpb.StringMatcher_Contains:
-						value = pattern.Contains
-						matcherType = Contains
+						header.value = pattern.Contains
+						header.matcherType = Contains
+						// TODO:
+						// case *v3matcherpb.StringMatcher_SafeRegex:
 					}
 				// old match
 				case *v3routepb.HeaderMatcher_ExactMatch:
-					value = ht.ExactMatch
-					matcherType = Exact
+					header.value = ht.ExactMatch
+					header.matcherType = Exact
 				case *v3routepb.HeaderMatcher_PrefixMatch:
-					value = ht.PrefixMatch
-					matcherType = Prefix
+					header.value = ht.PrefixMatch
+					header.matcherType = Prefix
 				case *v3routepb.HeaderMatcher_SuffixMatch:
-					value = ht.SuffixMatch
-					matcherType = Suffix
+					header.value = ht.SuffixMatch
+					header.matcherType = Suffix
 				case *v3routepb.HeaderMatcher_ContainsMatch:
-					value = ht.ContainsMatch
-					matcherType = Contains
+					header.value = ht.ContainsMatch
+					header.matcherType = Contains
+				case *v3routepb.HeaderMatcher_PresentMatch:
+					header.matcherType = Present
+					header.present = ht.PresentMatch
 				}
-				headers[k] = RouteMatchHeader{
-					name:        hs[k].GetName(),
-					value:       value,
-					matcherType: matcherType,
-				}
+				headers[k] = header
 				fmt.Printf("[xds] Route, name: %s, value: %s, type %d \n", headers[k].name, headers[k].value, headers[k].matcherType)
 			}
 			// action
 			action := rs[j].GetAction()
 			switch a := action.(type) {
 			case *v3routepb.Route_Route:
-				route.cluster = a.Route.GetCluster()
+				switch cs := a.Route.GetClusterSpecifier().(type) {
+				case *v3routepb.RouteAction_Cluster:
+					route.cluster = cs.Cluster
+					route.weightedClusters = []weightedCluster{
+						{name: cs.Cluster, weight: 1},
+					}
+				case *v3routepb.RouteAction_WeightedClusters:
+					wcs := cs.WeightedClusters
+					clusters := make([]weightedCluster, len(wcs.Clusters))
+					for i, wc := range wcs.GetClusters() {
+						clusters[i] = weightedCluster{
+							name:   wc.GetName(),
+							weight: wc.GetWeight().GetValue(),
+						}
+					}
+				}
+				a.Route.GetWeightedClusters()
 				route.timeout = a.Route.GetTimeout().AsDuration()
 			}
 			routes[j] = route
@@ -170,7 +220,9 @@ func UnmarshalRDS(rawResources []*any.Any) map[string]RouteConfigResource {
 		if err := proto.Unmarshal(r.GetValue(), rcfg); err != nil {
 			panic("[xds] RDS Unmarshal error")
 		}
-		ret[rcfg.GetName()] = unmarshalRouteConfig(rcfg)
+		res := unmarshalRouteConfig(rcfg)
+		ret[rcfg.GetName()] = res
+		fmt.Println("[xds client] route name:", res.Name())
 	}
 
 	return ret

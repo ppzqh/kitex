@@ -40,7 +40,6 @@ func (sc *XDSServerConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-
 var XDSBootstrapFileNameEnv = "GRPC_XDS_BOOTSTRAP"
 
 func newBootstrapConfig() *BootstrapConfig {
@@ -49,8 +48,10 @@ func newBootstrapConfig() *BootstrapConfig {
 	if bootstrapConfig != nil {
 		return bootstrapConfig
 	}
+	panic("[xds] bootstrap file not found")
 
-	addr := ":8080"
+	addr := "istiod.istio-system.svc:15012"
+	addr = "172.17.0.3:15012"
 	n := &envoy_config_core_v3.Node{
 		Id: "mesh", // TODO: load id from config file: env "GRPC_XDS_BOOTSTRAP"
 	}
@@ -96,6 +97,7 @@ func readBootstrap(fileName string) *BootstrapConfig {
 	return bootstrapConfig
 }
 
+// TODO: function is copied from grpc?
 // unmarshalJSONServerConfigSlice unmarshals JSON to a slice.
 func unmarshalJSONServerConfigSlice(data []byte) ([]*XDSServerConfig, error) {
 	var servers []*XDSServerConfig

@@ -40,7 +40,7 @@ func newStreamClient(addr string) (StreamClient, error) {
 		return nil, fmt.Errorf("dial error")
 	}
 	adscc := v3discovery.NewAggregatedDiscoveryServiceClient(cc)
-	sc, err := adscc.StreamAggregatedResources(context.Background())//grpc.WaitForReady(true))
+	sc, err := adscc.StreamAggregatedResources(context.Background()) //grpc.WaitForReady(true))
 
 	return sc, err
 }
@@ -190,19 +190,6 @@ func (c *xdsClient) run() {
 			c.handleResponse(resp)
 		}
 	}()
-
-	// Test warmup: send request with name as "*"
-	//warmup := func() {
-	//	req := &v3discovery.DiscoveryRequest{
-	//		VersionInfo:   "",
-	//		Node:          c.config.node,
-	//		TypeUrl:       xdsresource.ResourceTypeToUrl[xdsresource.ClusterType],
-	//		ResourceNames: []string{"*"},
-	//		ResponseNonce: "",
-	//	} //c.prepareRequest(ClusterType, false)
-	//	c.pushRequest(req)
-	//}
-	//warmup()
 }
 
 func (c *xdsClient) close() {
@@ -242,10 +229,11 @@ func (c *xdsClient) handleLDS(rawResources []*any.Any) {
 	// TODO: ACK
 	c.ack(xdsresource.ListenerType)
 
-	// prepare EDS request
+	// prepare RDS request
 	c.mu.Lock()
-	for name := range res {
-		c.subscribedResource[xdsresource.RouteConfigType][name] = true
+	for _, v := range res {
+		rn := v.RouteConfigName()
+		c.subscribedResource[xdsresource.RouteConfigType][rn] = true
 	}
 	c.mu.Unlock()
 	if req := c.prepareRequest(xdsresource.RouteConfigType, false); req != nil {
@@ -263,8 +251,13 @@ func (c *xdsClient) handleRDS(rawResources []*any.Any) {
 
 	// prepare CDS request
 	c.mu.Lock()
-	for name := range res {
-		c.subscribedResource[xdsresource.ClusterType][name] = true
+	for _, rcfg := range res {
+		for _, vh := range rcfg.VirtualHosts() {
+			for _, r := range vh.Routes() {
+				clusterName := r.Cluster()
+				c.subscribedResource[xdsresource.ClusterType][clusterName] = true
+			}
+		}
 	}
 	c.mu.Unlock()
 	if req := c.prepareRequest(xdsresource.ClusterType, false); req != nil {
@@ -279,13 +272,17 @@ func (c *xdsClient) handleCDS(rawResources []*any.Any) {
 
 	res := xdsresource.UnmarshalCDS(rawResources)
 	c.updateFunc.UpdateClusterResource(res)
-	// TODO: ACK
 	c.ack(xdsresource.ClusterType)
 
 	// prepare EDS request
 	c.mu.Lock()
-	for name := range res {
-		c.subscribedResource[xdsresource.EndpointsType][name] = true
+	for k, v := range res {
+		// TODO: handle inline EDS
+		if v.EndpointName() != "" {
+			c.subscribedResource[xdsresource.EndpointsType][v.EndpointName()] = true
+		} else {
+			c.subscribedResource[xdsresource.EndpointsType][k] = true
+		}
 	}
 	c.mu.Unlock()
 	if req := c.prepareRequest(xdsresource.EndpointsType, false); req != nil {

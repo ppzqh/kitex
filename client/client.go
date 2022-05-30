@@ -159,6 +159,7 @@ func (kc *kClient) checkOptions() (err error) {
 
 func (kc *kClient) initMiddlewares(ctx context.Context) {
 	builderMWs := richMWsWithBuilder(ctx, kc.opt.MWBs)
+	kc.mws = append(kc.mws, newRouterMWBuilder(kc.opt)(ctx))
 	kc.mws = append(kc.mws, kc.opt.CBSuite.ServiceCBMW(), rpcTimeoutMW(ctx))
 	kc.mws = append(kc.mws, builderMWs...)
 	// add new middlewares

@@ -23,11 +23,17 @@ const (
 	ClusterLbRingHash
 )
 
+type CircuitBreakerConfig struct {
+}
+
 type ClusterResource struct {
-	name            string
-	discoveryType   ClusterDiscoveryType
-	lbPolicy        ClusterLbPolicy
-	//inlineEndpoints *EndpointsResource
+	name           string
+	discoveryType  ClusterDiscoveryType
+	lbPolicy       ClusterLbPolicy
+	circuitBreaker CircuitBreakerConfig
+
+	endpointName    string
+	inlineEndpoints EndpointsResource
 }
 
 func (r *ClusterResource) Name() string {
@@ -48,6 +54,14 @@ func (r *ClusterResource) LbPolicy() string {
 	return ""
 }
 
+func (r *ClusterResource) EndpointName() string {
+	return r.endpointName
+}
+
+func (r *ClusterResource) InlineEDS() EndpointsResource {
+	return r.inlineEndpoints
+}
+
 func UnmarshalCDS(rawResources []*any.Any) map[string]ClusterResource {
 	ret := make(map[string]ClusterResource, len(rawResources))
 	fmt.Println("[xds] cluster resource, length:", len(rawResources))
@@ -57,18 +71,17 @@ func UnmarshalCDS(rawResources []*any.Any) map[string]ClusterResource {
 			panic("Unmarshal error")
 		}
 		// TODO:
-		//cb := c.GetCircuitBreakers()
-		//connTimeout := c.GetConnectTimeout()
+		// circult breaker and outlier detection
 		res := ClusterResource{
 			name:            c.GetName(),
 			discoveryType:   convertDiscoveryType(c.GetType()),
 			lbPolicy:        convertLbPolicy(c.GetLbPolicy()),
-			// TODO: cds may include endpoint info
-			//inlineEndpoints: unmarshalClusterLoadAssignment(c.GetLoadAssignment()),
+			endpointName:    c.GetEdsClusterConfig().GetServiceName(),
+			inlineEndpoints: unmarshalClusterLoadAssignment(c.GetLoadAssignment()),
 		}
 		fmt.Println("[xds] cluster resource name:", c.GetName())
-		fmt.Println("[xds] cluster discovery type:", c.GetType())
-		fmt.Println("[xds] cluster eds name:", c.GetEdsClusterConfig().GetServiceName())
+		//fmt.Println("[xds] cluster discovery type:", c.GetType())
+		//fmt.Println("[xds] cluster eds name:", c.GetEdsClusterConfig().GetServiceName())
 		ret[c.GetName()] = res
 	}
 

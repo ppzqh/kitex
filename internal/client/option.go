@@ -18,6 +18,7 @@
 package client
 
 import (
+	"github.com/cloudwego/kitex/pkg/router"
 	"time"
 
 	"github.com/cloudwego/kitex/internal/configutil"
@@ -67,6 +68,7 @@ type Options struct {
 
 	RemoteOpt        *remote.ClientOption
 	Proxy            proxy.ForwardProxy
+	Router           router.Router
 	Resolver         discovery.Resolver
 	HTTPResolver     http.Resolver
 	Balancer         loadbalance.Loadbalancer

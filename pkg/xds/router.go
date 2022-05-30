@@ -30,8 +30,8 @@ func (r *XdsRouter) Route(info rpcinfo.RPCInfo) router.RouteConfig {
 	// match the first one
 	// TODO: only test
 	tags := make(map[string]string)
-	key, value := "end-user", "jason"
-	tags[key] = value
+	//key, value := "end-user", "jason"
+	//tags[key] = value
 	path := info.From().Method()
 
 	var matchedRoute xdsresource.Route
