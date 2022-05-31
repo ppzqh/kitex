@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/discovery"
 	"github.com/cloudwego/kitex/pkg/kerrors"
-	"github.com/cloudwego/kitex/pkg/router"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
 )
@@ -17,7 +16,7 @@ type XdsResolver struct {
 
 // Target should return a description for the given target that is suitable for being a key for cache.
 func (r *XdsResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (description string) {
-	dest, ok := target.Tag(router.RouterDestinationKey)
+	dest, ok := target.Tag(RouterDestinationKey)
 	fmt.Println("[xds resolver] target:", dest)
 	if !ok {
 		return target.ServiceName()

@@ -2,16 +2,26 @@ package xds
 
 import (
 	"fmt"
-	"github.com/cloudwego/kitex/pkg/router"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
 	"math/rand"
 	"strings"
+	"time"
 )
+
+const (
+	RouterDestinationKey = "route_destination"
+)
+
+type RouteConfig struct {
+	RPCTimeout  time.Duration
+	Destination string
+	// TODO: retry policy also in RDS
+}
 
 type XdsRouter struct{}
 
-func (r *XdsRouter) Route(info rpcinfo.RPCInfo) router.RouteConfig {
+func (r *XdsRouter) Route(info rpcinfo.RPCInfo) RouteConfig {
 	listenerName := info.To().ServiceName()
 	lds := GetXdsResourceManager().Get(xdsresource.ListenerType, listenerName)
 	listener, ok := lds.(xdsresource.ListenerResource)
@@ -58,7 +68,7 @@ func (r *XdsRouter) Route(info rpcinfo.RPCInfo) router.RouteConfig {
 	}
 	// select cluster
 	cluster := selectCluster(matchedRoute)
-	return router.RouteConfig{
+	return RouteConfig{
 		RPCTimeout:  matchedRoute.Timeout(),
 		Destination: cluster,
 	}

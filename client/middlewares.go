@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	router2 "github.com/cloudwego/kitex/pkg/router"
+	"github.com/cloudwego/kitex/pkg/xds"
 	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -72,11 +72,12 @@ func discoveryEventHandler(name string, bus event.Bus, queue event.Queue) func(d
 	}
 }
 
-func newRouterMWBuilder(opt *client.Options) endpoint.MiddlewareBuilder {
-	router := opt.Router
+func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
+	router := &xds.XdsRouter{}
 	return func(ctx context.Context) endpoint.Middleware {
 		return func(next endpoint.Endpoint) endpoint.Endpoint {
 			return func(ctx context.Context, request, response interface{}) error {
+				// TODO: warmup
 				time.Sleep(time.Second)
 				if router == nil {
 					return next(ctx, request, response)
@@ -87,7 +88,7 @@ func newRouterMWBuilder(opt *client.Options) endpoint.MiddlewareBuilder {
 					return kerrors.ErrNoDestService
 				}
 				rcfg := router.Route(ri)
-				key := router2.RouterDestinationKey
+				key := xds.RouterDestinationKey
 				// set destination
 				_ = remoteinfo.AsRemoteInfo(dest).SetTag(key, rcfg.Destination)
 				remoteinfo.AsRemoteInfo(dest).SetTagLock(key)
