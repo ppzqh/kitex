@@ -78,20 +78,19 @@ func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 		return func(next endpoint.Endpoint) endpoint.Endpoint {
 			return func(ctx context.Context, request, response interface{}) error {
 				// TODO: warmup
-				time.Sleep(time.Second)
-				if router == nil {
-					return next(ctx, request, response)
-				}
+				//time.Sleep(time.Second)
 				ri := rpcinfo.GetRPCInfo(ctx)
 				dest := ri.To()
 				if dest == nil {
 					return kerrors.ErrNoDestService
 				}
-				rcfg := router.Route(ri)
-				key := xds.RouterDestinationKey
+				rcfg, err := router.Route(ri)
+				if err != nil {
+					return err
+				}
 				// set destination
-				_ = remoteinfo.AsRemoteInfo(dest).SetTag(key, rcfg.Destination)
-				remoteinfo.AsRemoteInfo(dest).SetTagLock(key)
+				_ = remoteinfo.AsRemoteInfo(dest).SetTag(xds.RouterDestinationKey, rcfg.Destination)
+				remoteinfo.AsRemoteInfo(dest).SetTagLock(xds.RouterDestinationKey)
 				// set timeout
 				_ = rpcinfo.AsMutableRPCConfig(ri.Config()).SetRPCTimeout(rcfg.RPCTimeout)
 				ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)

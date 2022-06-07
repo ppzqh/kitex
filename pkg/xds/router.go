@@ -2,6 +2,7 @@ package xds
 
 import (
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
 	"math/rand"
@@ -21,7 +22,7 @@ type RouteConfig struct {
 
 type XdsRouter struct{}
 
-func (r *XdsRouter) Route(info rpcinfo.RPCInfo) RouteConfig {
+func (r *XdsRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	listenerName := info.To().ServiceName()
 	lds := GetXdsResourceManager().Get(xdsresource.ListenerType, listenerName)
 	listener, ok := lds.(xdsresource.ListenerResource)
@@ -40,8 +41,6 @@ func (r *XdsRouter) Route(info rpcinfo.RPCInfo) RouteConfig {
 	// match the first one
 	// TODO: only test
 	tags := make(map[string]string)
-	//key, value := "end-user", "jason"
-	//tags[key] = value
 	path := info.From().Method()
 
 	var matchedRoute xdsresource.Route
@@ -64,14 +63,14 @@ func (r *XdsRouter) Route(info rpcinfo.RPCInfo) RouteConfig {
 	}
 
 	if !matched {
-		panic("[xds router] route failed")
+		return nil, kerrors.ErrRoute
 	}
 	// select cluster
 	cluster := selectCluster(matchedRoute)
-	return RouteConfig{
+	return &RouteConfig{
 		RPCTimeout:  matchedRoute.Timeout(),
 		Destination: cluster,
-	}
+	}, nil
 }
 
 func selectCluster(route xdsresource.Route) string {
