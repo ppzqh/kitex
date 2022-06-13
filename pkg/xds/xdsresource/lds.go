@@ -1,7 +1,6 @@
 package xdsresource
 
 import (
-	"fmt"
 	v3listenerpb "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	v3httppb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -10,20 +9,13 @@ import (
 )
 
 type ListenerResource struct {
-	routeConfigName   string
-	inlineRouteConfig RouteConfigResource
+	Name              string
+	RouteConfigName   string
+	InlineRouteConfig *RouteConfigResource
 }
 
-func (res *ListenerResource) RouteConfigName() string {
-	return res.routeConfigName
-}
-
-func (res *ListenerResource) InlineRouteConfig() RouteConfigResource {
-	return res.inlineRouteConfig
-}
-
-func UnmarshalLDS(rawResources []*any.Any) map[string]ListenerResource {
-	ret := make(map[string]ListenerResource, len(rawResources))
+func UnmarshalLDS(rawResources []*any.Any) map[string]*ListenerResource {
+	ret := make(map[string]*ListenerResource, len(rawResources))
 
 	for _, r := range rawResources {
 		lis := &v3listenerpb.Listener{}
@@ -34,26 +26,25 @@ func UnmarshalLDS(rawResources []*any.Any) map[string]ListenerResource {
 		if err := proto.Unmarshal(lis.GetApiListener().GetApiListener().GetValue(), apiLis); err != nil {
 			panic("failed to unmarshal api_listner")
 		}
-		//fmt.Println("[xds] LDS(routeConfig name):", apiLis.GetRds().RouteConfigName)
-		//fmt.Println("[xds] api_listener:", apiLis.String())
 
-		var res ListenerResource
+		var res *ListenerResource
 		switch apiLis.RouteSpecifier.(type) {
 		case *v3httppb.HttpConnectionManager_Rds:
-			res = ListenerResource{routeConfigName: apiLis.GetRds().RouteConfigName}
+			res = &ListenerResource{RouteConfigName: apiLis.GetRds().RouteConfigName}
 		case *v3httppb.HttpConnectionManager_RouteConfig:
-			var inlineRDS RouteConfigResource
+			var inlineRDS *RouteConfigResource
 			if apiLis.GetRouteConfig() != nil {
 				inlineRDS = unmarshalRouteConfig(apiLis.GetRouteConfig())
 			}
-			res = ListenerResource{
-				routeConfigName:   inlineRDS.Name(),
-				inlineRouteConfig: inlineRDS,
+			res = &ListenerResource{
+				RouteConfigName:   inlineRDS.Name,
+				InlineRouteConfig: inlineRDS,
 			}
 		}
-		// TODO: check if the name is correct
-		fmt.Println("[xds] listener:", lis.String())
+		// TODO: check if the Name is correct
+		//fmt.Println("[xds] listener:", lis.String())
 		name := parseListenerName(lis.GetName())
+		res.Name = name
 		ret[name] = res
 	}
 

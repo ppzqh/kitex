@@ -31,15 +31,15 @@ func (lb *XdsLoadbalancer) GetPicker(e discovery.Result) loadbalance.Picker {
 	// 2. init picker based on the policy
 	m := GetXdsResourceManager()
 	name := "outbound|9080|v2|reviews.default.svc.cluster.local"
-	res := m.Get(xdsresource.ClusterType, name)
-	if res == nil {
+	res, err := m.Get(xdsresource.ClusterType, name)
+	if err == nil {
 		panic("[xds loadbalancer] Get resource failed")
 	}
 	cds, ok := res.(xdsresource.ClusterResource)
 	if !ok {
 		panic("[xds loadbalancer] CDS cast failed")
 	}
-	fmt.Println(cds.LbPolicy())
+	fmt.Println(cds.LbPolicy)
 
 	return &xdsPicker{instances: e}
 }

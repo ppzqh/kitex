@@ -1,7 +1,6 @@
 package xdsresource
 
 import (
-	"fmt"
 	v3clusterpb "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
@@ -27,25 +26,21 @@ type CircuitBreakerConfig struct {
 }
 
 type ClusterResource struct {
-	name           string
-	discoveryType  ClusterDiscoveryType
-	lbPolicy       ClusterLbPolicy
-	circuitBreaker CircuitBreakerConfig
+	Name          string
+	DiscoveryType  ClusterDiscoveryType
+	LbPolicy       ClusterLbPolicy
+	CircuitBreaker CircuitBreakerConfig
 
-	endpointName    string
-	inlineEndpoints EndpointsResource
-}
-
-func (r *ClusterResource) Name() string {
-	return r.name
+	EndpointName    string
+	InlineEndpoints *EndpointsResource
 }
 
 func (r *ClusterResource) ClusterType() string {
-	return strconv.Itoa(int(r.discoveryType))
+	return strconv.Itoa(int(r.DiscoveryType))
 }
 
-func (r *ClusterResource) LbPolicy() string {
-	switch r.lbPolicy {
+func (r *ClusterResource) GetLbPolicy() string {
+	switch r.LbPolicy {
 	case ClusterLbRoundRobin:
 		return "roundrobin"
 	case ClusterLbRingHash:
@@ -54,34 +49,25 @@ func (r *ClusterResource) LbPolicy() string {
 	return ""
 }
 
-func (r *ClusterResource) EndpointName() string {
-	return r.endpointName
+func (r *ClusterResource) InlineEDS() *EndpointsResource {
+	return r.InlineEndpoints
 }
 
-func (r *ClusterResource) InlineEDS() EndpointsResource {
-	return r.inlineEndpoints
-}
-
-func UnmarshalCDS(rawResources []*any.Any) map[string]ClusterResource {
-	ret := make(map[string]ClusterResource, len(rawResources))
-	fmt.Println("[xds] cluster resource, length:", len(rawResources))
+func UnmarshalCDS(rawResources []*any.Any) map[string]*ClusterResource {
+	ret := make(map[string]*ClusterResource, len(rawResources))
 	for _, r := range rawResources {
 		c := &v3clusterpb.Cluster{}
 		if err := proto.Unmarshal(r.GetValue(), c); err != nil {
 			panic("Unmarshal error")
 		}
-		// TODO:
-		// circult breaker and outlier detection
-		res := ClusterResource{
-			name:            c.GetName(),
-			discoveryType:   convertDiscoveryType(c.GetType()),
-			lbPolicy:        convertLbPolicy(c.GetLbPolicy()),
-			endpointName:    c.GetEdsClusterConfig().GetServiceName(),
-			inlineEndpoints: unmarshalClusterLoadAssignment(c.GetLoadAssignment()),
+		// TODO: circult breaker and outlier detection
+		res := &ClusterResource{
+			Name:            c.GetName(),
+			DiscoveryType:   convertDiscoveryType(c.GetType()),
+			LbPolicy:        convertLbPolicy(c.GetLbPolicy()),
+			EndpointName:    c.GetEdsClusterConfig().GetServiceName(),
+			InlineEndpoints: unmarshalClusterLoadAssignment(c.GetLoadAssignment()),
 		}
-		fmt.Println("[xds] cluster resource name:", c.GetName())
-		//fmt.Println("[xds] cluster discovery type:", c.GetType())
-		//fmt.Println("[xds] cluster eds name:", c.GetEdsClusterConfig().GetServiceName())
 		ret[c.GetName()] = res
 	}
 

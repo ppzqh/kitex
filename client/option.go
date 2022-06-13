@@ -168,8 +168,7 @@ func WithXDSSuite() Option {
 		di.Push(fmt.Sprintf("WithXDSSuite"))
 
 		o.XDSEnabled = true
-		m := xds.GetXdsResourceManager()
-		_ = m.Subscribe(xdsresource.ListenerType, o.Svr.ServiceName)
+		xds.GetXdsResourceManager().Subscribe(xdsresource.ListenerType, o.Svr.ServiceName)
 		o.Resolver = &xds.XdsResolver{}
 	}}
 }

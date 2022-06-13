@@ -77,8 +77,6 @@ func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 	return func(ctx context.Context) endpoint.Middleware {
 		return func(next endpoint.Endpoint) endpoint.Endpoint {
 			return func(ctx context.Context, request, response interface{}) error {
-				// TODO: warmup
-				//time.Sleep(time.Second)
 				ri := rpcinfo.GetRPCInfo(ctx)
 				dest := ri.To()
 				if dest == nil {

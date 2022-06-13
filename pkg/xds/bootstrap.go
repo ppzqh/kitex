@@ -42,24 +42,14 @@ func (sc *XDSServerConfig) UnmarshalJSON(data []byte) error {
 
 var XDSBootstrapFileNameEnv = "GRPC_XDS_BOOTSTRAP"
 
-func newBootstrapConfig() *BootstrapConfig {
+func newBootstrapConfig() (*BootstrapConfig, error) {
 	XDSBootstrapFileName := os.Getenv(XDSBootstrapFileNameEnv)
 	bootstrapConfig := readBootstrap(XDSBootstrapFileName)
 	if bootstrapConfig != nil {
-		return bootstrapConfig
+		return bootstrapConfig, nil
 	}
-	panic("[xds] bootstrap file not found")
-
-	addr := "istiod.istio-system.svc:15012"
-	addr = "172.17.0.3:15012"
-	n := &envoy_config_core_v3.Node{
-		Id: "mesh", // TODO: load id from config file: env "GRPC_XDS_BOOTSTRAP"
-	}
-	cfg := &BootstrapConfig{
-		xdsSvrCfg: &XDSServerConfig{serverAddress: addr},
-		node:      n,
-	}
-	return cfg
+	err := fmt.Errorf("[XDS] bootstrap")
+	return nil, err
 }
 
 func readBootstrap(fileName string) *BootstrapConfig {

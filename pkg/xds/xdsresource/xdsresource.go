@@ -39,4 +39,12 @@ var ResourceUrlToType = map[string]ResourceType{
 	EndpointTypeUrl: EndpointsType,
 }
 
-type Resource interface{}
+var ResourceUrlToName = map[ResourceType]string{
+	ListenerType:    "listener",
+	RouteConfigType: "route",
+	ClusterType:     "cluster",
+	EndpointsType:   "endpoint",
+}
+
+type Resource interface {
+}
