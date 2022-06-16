@@ -19,8 +19,8 @@ type xdsResourceManager struct {
 	client *xdsClient
 	// cache stores all the resources
 	cache map[xdsresource.ResourceType]map[string]xdsresource.Resource
-	// updateCbMap maintains the callback functions of resource update
-	updateCbMap map[xdsresource.ResourceType]map[string][]func()
+	// updateChMap maintains the channel for notifying resource update
+	updateChMap map[xdsresource.ResourceType]map[string][]chan struct{}
 	mu          sync.Mutex
 
 	// TODO: refactor the dump logic
@@ -40,14 +40,14 @@ func GetXdsResourceManager() *xdsResourceManager {
 
 func newXdsResourceManager() (*xdsResourceManager, error) {
 	// TODO: load ADS configuration from bootstrap.yaml, which should be passed into the xdsClient for initiation
-	up := make(map[xdsresource.ResourceType]map[string][]func())
+	up := make(map[xdsresource.ResourceType]map[string][]chan struct{})
 	for rt := range xdsresource.ResourceTypeToUrl {
-		up[rt] = make(map[string][]func())
+		up[rt] = make(map[string][]chan struct{})
 	}
 
 	m := &xdsResourceManager{
 		cache:       newXdsResourceCache(),
-		updateCbMap: up,
+		updateChMap: up,
 	}
 	// Construct bootstrap config
 	bootstrapConfig, err := newBootstrapConfig()
@@ -81,23 +81,20 @@ func (m *xdsResourceManager) Get(resourceType xdsresource.ResourceType, resource
 
 	// Fetch resource via client and wait for the update
 	m.mu.Lock()
-	m.client.Subscribe(resourceType, resourceName)
-	// Setup callback function for this resource
-	cbs := m.updateCbMap[resourceType][resourceName]
-	if cbs == nil {
-		cbs = make([]func(), 0)
+	// Setup channel for this resource
+	chs := m.updateChMap[resourceType][resourceName]
+	if len(chs) == 0 {
+		// only send one request for this resource
+		m.client.Subscribe(resourceType, resourceName)
 	}
 	updateCh := make(chan struct{})
-	cb := func() {
-		close(updateCh)
-	}
-	cbs = append(cbs, cb)
-	m.updateCbMap[resourceType][resourceName] = cbs
+	chs = append(chs, updateCh)
+	m.updateChMap[resourceType][resourceName] = chs
 	m.mu.Unlock()
 
 	// Set timeout
 	// TODO: timeout should be specified in the config of xdsResourceManager
-	timeout := time.Second
+	timeout := defaultXDSFetchTimeout
 	t := time.NewTimer(timeout)
 	var err error
 	select {
@@ -120,7 +117,6 @@ func (m *xdsResourceManager) Subscribe(resourceType xdsresource.ResourceType, re
 	m.client.Subscribe(resourceType, resourceName)
 }
 
-// TODO: dump into local file
 func (m *xdsResourceManager) Dump() {
 	for t := range xdsresource.ResourceUrlToName {
 		m.DumpOne(t)
@@ -150,7 +146,7 @@ func (m *xdsResourceManager) Close() {
 		delete(m.cache, k)
 	}
 	// clear the updateCb
-	for k := range m.updateCbMap {
+	for k := range m.updateChMap {
 		delete(m.cache, k)
 	}
 }
@@ -168,13 +164,13 @@ func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.L
 
 	for name, res := range up {
 		m.cache[xdsresource.ListenerType][name] = res
-		if cbs, exist := m.updateCbMap[xdsresource.ListenerType][name]; exist {
-			for _, cb := range cbs {
-				if cb != nil {
-					cb()
+		if chs, exist := m.updateChMap[xdsresource.ListenerType][name]; exist {
+			for _, ch := range chs {
+				if ch != nil {
+					close(ch)
 				}
 			}
-			m.updateCbMap[xdsresource.ListenerType] = nil
+			m.updateChMap[xdsresource.ListenerType][name] = m.updateChMap[xdsresource.ListenerType][name][0:0]
 		}
 	}
 }
@@ -185,13 +181,13 @@ func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresourc
 
 	for name, res := range up {
 		m.cache[xdsresource.RouteConfigType][name] = res
-		if cbs, exist := m.updateCbMap[xdsresource.RouteConfigType][name]; exist {
-			for _, cb := range cbs {
-				if cb != nil {
-					cb()
+		if chs, exist := m.updateChMap[xdsresource.RouteConfigType][name]; exist {
+			for _, ch := range chs {
+				if ch != nil {
+					close(ch)
 				}
 			}
-			m.updateCbMap[xdsresource.RouteConfigType] = nil
+			m.updateChMap[xdsresource.RouteConfigType][name] = m.updateChMap[xdsresource.RouteConfigType][name][0:0]
 		}
 	}
 }
@@ -202,13 +198,13 @@ func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.Cl
 
 	for name, res := range up {
 		m.cache[xdsresource.ClusterType][name] = res
-		if cbs, exist := m.updateCbMap[xdsresource.ClusterType][name]; exist {
-			for _, cb := range cbs {
-				if cb != nil {
-					cb()
+		if chs, exist := m.updateChMap[xdsresource.ClusterType][name]; exist {
+			for _, ch := range chs {
+				if ch != nil {
+					close(ch)
 				}
 			}
-			m.updateCbMap[xdsresource.ClusterType] = nil
+			m.updateChMap[xdsresource.ClusterType][name] = m.updateChMap[xdsresource.ClusterType][name][0:0]
 		}
 	}
 }
@@ -219,13 +215,13 @@ func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.
 
 	for name, res := range up {
 		m.cache[xdsresource.EndpointsType][name] = res
-		if cbs, exist := m.updateCbMap[xdsresource.EndpointsType][name]; exist {
-			for _, cb := range cbs {
-				if cb != nil {
-					cb()
+		if chs, exist := m.updateChMap[xdsresource.EndpointsType][name]; exist {
+			for _, ch := range chs {
+				if ch != nil {
+					close(ch)
 				}
 			}
-			m.updateCbMap[xdsresource.EndpointsType] = nil
+			m.updateChMap[xdsresource.EndpointsType][name] = m.updateChMap[xdsresource.EndpointsType][name][0:0]
 		}
 	}
 }

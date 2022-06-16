@@ -1,6 +1,7 @@
 package xdsresource
 
 import (
+	"encoding/json"
 	"github.com/cloudwego/kitex/pkg/utils"
 	v3endpointpb "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -13,6 +14,18 @@ type Endpoint struct {
 	Addr   net.Addr
 	Weight int
 	Meta   map[string]string // Tag in discovery.instance.tag
+}
+
+func (e *Endpoint) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		Addr   string            `json:"addr"`
+		Weight int               `json:"weight"`
+		Meta   map[string]string `json:"meta,omitempty"`
+	}{
+		Addr:   e.Addr.String(),
+		Weight: e.Weight,
+		Meta:   e.Meta,
+	})
 }
 
 func (e *Endpoint) Tag(key string) (value string, exist bool) {

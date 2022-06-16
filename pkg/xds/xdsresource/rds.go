@@ -131,7 +131,6 @@ func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) *RouteConfi
 					header.Present = ht.PresentMatch
 				}
 				headers[k] = header
-				//fmt.Printf("[xds] Route, Name: %s, Value: %s, type %d \n", headers[k].Name, headers[k].Value, headers[k].MatchType)
 			}
 			// action
 			action := rs[j].GetAction()

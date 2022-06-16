@@ -42,9 +42,10 @@ type xdsClient struct {
 	versionMap         map[xdsresource.ResourceType]string
 	nonceMap           map[xdsresource.ResourceType]string
 
-	streamClient StreamClient
-	updateFunc   ResourceUpdater
+	streamClient    StreamClient
+	resourceUpdater ResourceUpdater
 
+	refreshInterval time.Duration
 	// request queue
 	requestInfoQueue []interface{}
 	qLock            sync.Mutex
@@ -72,7 +73,8 @@ func newXdsClient(bCfg *BootstrapConfig, updater ResourceUpdater) (*xdsClient, e
 		versionMap:         make(map[xdsresource.ResourceType]string),
 		nonceMap:           make(map[xdsresource.ResourceType]string),
 		requestInfoQueue:   make([]interface{}, 0),
-		updateFunc:         updater,
+		resourceUpdater:    updater,
+		refreshInterval:    defaultRefreshInterval,
 	}
 
 	cli.run()
@@ -111,11 +113,9 @@ func (c *xdsClient) Subscribe(resourceType xdsresource.ResourceType, resourceNam
 		c.subscribedResource[resourceType] = make(map[string]bool)
 	}
 	// subscribe new resource
-	if c.subscribedResource[resourceType][resourceName] == false {
-		c.subscribedResource[resourceType][resourceName] = true
-		ri := &requestInfo{resourceType: resourceType, ack: false}
-		c.pushRequestInfo(ri)
-	}
+	c.subscribedResource[resourceType][resourceName] = true
+	ri := &requestInfo{resourceType: resourceType, ack: false}
+	c.pushRequestInfo(ri)
 }
 
 func (c *xdsClient) Unsubscribe(resourceType xdsresource.ResourceType, resourceName string) {
@@ -137,8 +137,7 @@ func (c *xdsClient) refresh() {
 }
 
 func (c *xdsClient) run() {
-	refreshInterval := 5 * time.Second
-	timer := time.NewTicker(refreshInterval)
+	timer := time.NewTicker(c.refreshInterval)
 
 	// sender:
 	go func() {
@@ -149,7 +148,7 @@ func (c *xdsClient) run() {
 				return
 			case <-timer.C:
 				c.refresh()
-				timer.Reset(refreshInterval)
+				timer.Reset(c.refreshInterval)
 			default:
 				req := c.popRequestInfo()
 				if req == nil {
@@ -215,7 +214,7 @@ func (c *xdsClient) handleLDS(rawResources []*any.Any) {
 	}
 
 	res := xdsresource.UnmarshalLDS(rawResources)
-	c.updateFunc.UpdateListenerResource(res)
+	c.resourceUpdater.UpdateListenerResource(res)
 	c.ack(xdsresource.ListenerType)
 
 	c.mu.Lock()
@@ -236,7 +235,7 @@ func (c *xdsClient) handleRDS(rawResources []*any.Any) {
 		return
 	}
 	res := xdsresource.UnmarshalRDS(rawResources)
-	c.updateFunc.UpdateRouteConfigResource(res)
+	c.resourceUpdater.UpdateRouteConfigResource(res)
 	c.ack(xdsresource.RouteConfigType)
 
 	// prepare CDS request
@@ -261,7 +260,7 @@ func (c *xdsClient) handleCDS(rawResources []*any.Any) {
 	}
 
 	res := xdsresource.UnmarshalCDS(rawResources)
-	c.updateFunc.UpdateClusterResource(res)
+	c.resourceUpdater.UpdateClusterResource(res)
 	c.ack(xdsresource.ClusterType)
 
 	// prepare EDS request
@@ -282,7 +281,7 @@ func (c *xdsClient) handleCDS(rawResources []*any.Any) {
 	}
 	// update inline EDS directly
 	if len(inlineEndpoints) > 0 {
-		c.updateFunc.UpdateEndpointsResource(inlineEndpoints)
+		c.resourceUpdater.UpdateEndpointsResource(inlineEndpoints)
 	}
 	c.mu.Unlock()
 	ri := &requestInfo{resourceType: xdsresource.EndpointsType, ack: false}
@@ -294,7 +293,7 @@ func (c *xdsClient) handleEDS(rawResources []*any.Any) {
 		return
 	}
 	res := xdsresource.UnmarshalEDS(rawResources)
-	c.updateFunc.UpdateEndpointsResource(res)
+	c.resourceUpdater.UpdateEndpointsResource(res)
 	c.ack(xdsresource.EndpointsType)
 }
 

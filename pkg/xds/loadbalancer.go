@@ -15,6 +15,7 @@ import (
 //}
 
 type XdsLoadbalancer struct {
+	//map[string]loadbalance.Picker
 }
 
 type xdsPicker struct {
