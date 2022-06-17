@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	envoy_config_core_v3 "github.com/cloudwego/kitex/pkg/xds_gen/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_core_v3 "github.com/ppzqh/kitex/pkg/xds_gen/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"github.com/golang/protobuf/jsonpb"
 	"io/ioutil"
 	"os"

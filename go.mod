@@ -7,7 +7,7 @@ require (
 	github.com/bytedance/gopkg v0.0.0-20220509134931-d1878f638986
 	github.com/cespare/xxhash v1.1.0
 	github.com/choleraehyq/pid v0.0.13
-	github.com/cloudwego/kitex/pkg/xds_gen v0.0.0-00010101000000-000000000000
+	github.com/ppzqh/kitex/pkg/xds_gen v0.0.0-20220617070915-d02f6c5c7533
 	github.com/cloudwego/netpoll v0.2.4
 	github.com/cloudwego/netpoll-http2 v0.0.6
 	github.com/cloudwego/thriftgo v0.1.2
@@ -22,5 +22,3 @@ require (
 	google.golang.org/protobuf v1.28.0
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 )
-
-replace github.com/cloudwego/kitex/pkg/xds_gen => github.com/ppzqh/kitex/pkg/xds_gen v0.0.0-20220617070915-d02f6c5c7533
