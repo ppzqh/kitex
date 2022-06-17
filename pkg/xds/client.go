@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
-	v3discovery "github.com/ppzqh/kitex/pkg/xds_gen/discoveryv3"
-	"github.com/ppzqh/kitex/pkg/xds_gen/discoveryv3/aggregateddiscoveryservice"
 	"github.com/golang/protobuf/ptypes/any"
+	v3discovery "github.com/ppzqh/kitex_xds_api/discoveryv3"
+	"github.com/ppzqh/kitex_xds_api/discoveryv3/aggregateddiscoveryservice"
 	"sync"
 	"time"
 )

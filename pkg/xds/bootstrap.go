@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	envoy_config_core_v3 "github.com/ppzqh/kitex/pkg/xds_gen/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"github.com/golang/protobuf/jsonpb"
+	envoy_config_core_v3 "github.com/ppzqh/kitex_xds_api/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"io/ioutil"
 	"os"
 )
