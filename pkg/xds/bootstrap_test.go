@@ -6,6 +6,6 @@ import (
 )
 
 func Test_newBootstrapConfig(t *testing.T) {
-	config := newBootstrapConfig()
+	config, _ := newBootstrapConfig()
 	test.Assert(t, config.xdsSvrCfg != nil)
 }

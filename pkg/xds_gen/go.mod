@@ -1,4 +1,4 @@
-module github.com/cloudwego/kitex/pkg/xds_gen
+module github.com/cloudwego/ppzqh/pkg/xds_gen
 
 go 1.17
 
