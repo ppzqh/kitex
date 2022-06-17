@@ -5,33 +5,34 @@ import (
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
-	v3discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	v3discovery "github.com/cloudwego/kitex/pkg/xds_gen/discoveryv3"
+	"github.com/cloudwego/kitex/pkg/xds_gen/discoveryv3/aggregateddiscoveryservice"
 	"github.com/golang/protobuf/ptypes/any"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
 	"sync"
 	"time"
 )
 
 type StreamClient interface {
-	v3discovery.AggregatedDiscoveryService_StreamAggregatedResourcesClient
+	aggregateddiscoveryservice.AggregatedDiscoveryService_StreamAggregatedResourcesClient
+	//v3discovery.AggregatedDiscoveryService_StreamAggregatedResourcesClient
 }
 
 func newStreamClient(addr string) (StreamClient, error) {
-	dopts := []grpc.DialOption{
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    5 * time.Minute,
-			Timeout: time.Second,
-		}),
-		grpc.WithInsecure(),
-	}
-	cc, err := grpc.Dial(addr, dopts...)
-	if err != nil {
-		return nil, fmt.Errorf("[XDS] client: dial error")
-	}
-	adscc := v3discovery.NewAggregatedDiscoveryServiceClient(cc)
-	sc, err := adscc.StreamAggregatedResources(context.Background()) //grpc.WaitForReady(true))
-
+	//dopts := []grpc.DialOption{
+	//	grpc.WithKeepaliveParams(keepalive.ClientParameters{
+	//		Time:    5 * time.Minute,
+	//		Timeout: time.Second,
+	//	}),
+	//	grpc.WithInsecure(),
+	//}
+	//cc, err := grpc.Dial(addr, dopts...)
+	//if err != nil {
+	//	return nil, fmt.Errorf("[XDS] client: dial error")
+	//}
+	//adscc := v3discovery.NewAggregatedDiscoveryServiceClient(cc)
+	//sc, err := adscc.StreamAggregatedResources(context.Background()) //grpc.WaitForReady(true))
+	cli := aggregateddiscoveryservice.MustNewClient("xds_server")
+	sc, err := cli.StreamAggregatedResources(context.Background())
 	return sc, err
 }
 
