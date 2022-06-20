@@ -19,8 +19,7 @@ package client
 import (
 	"context"
 	"fmt"
-	"github.com/cloudwego/kitex/pkg/xds"
-	"github.com/cloudwego/kitex/pkg/xds/xdsresource"
+	"github.com/cloudwego/kitex/pkg/xds/xdssuite"
 	"net"
 	"strings"
 	"time"
@@ -167,9 +166,9 @@ func WithXDSSuite() Option {
 	return Option{F: func(o *client.Options, di *utils.Slice) {
 		di.Push(fmt.Sprintf("WithXDSSuite"))
 
+
 		o.XDSEnabled = true
-		xds.GetXdsResourceManager().Subscribe(xdsresource.ListenerType, o.Svr.ServiceName)
-		o.Resolver = &xds.XdsResolver{}
+		o.Resolver = &xdssuite.XDSResolver{}
 	}}
 }
 

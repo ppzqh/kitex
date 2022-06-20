@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cloudwego/kitex/pkg/xds"
+	"github.com/cloudwego/kitex/pkg/xds/xdssuite"
 	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -73,7 +73,7 @@ func discoveryEventHandler(name string, bus event.Bus, queue event.Queue) func(d
 }
 
 func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
-	router := &xds.XdsRouter{}
+	router := &xdssuite.XDSRouter{}
 	return func(ctx context.Context) endpoint.Middleware {
 		return func(next endpoint.Endpoint) endpoint.Endpoint {
 			return func(ctx context.Context, request, response interface{}) error {
@@ -87,8 +87,8 @@ func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 					return err
 				}
 				// set destination
-				_ = remoteinfo.AsRemoteInfo(dest).SetTag(xds.RouterDestinationKey, rcfg.Destination)
-				remoteinfo.AsRemoteInfo(dest).SetTagLock(xds.RouterDestinationKey)
+				_ = remoteinfo.AsRemoteInfo(dest).SetTag(xdssuite.RouterDestinationKey, rcfg.Destination)
+				remoteinfo.AsRemoteInfo(dest).SetTagLock(xdssuite.RouterDestinationKey)
 				// set timeout
 				_ = rpcinfo.AsMutableRPCConfig(ri.Config()).SetRPCTimeout(rcfg.RPCTimeout)
 				ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)
