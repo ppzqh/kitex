@@ -1,6 +1,7 @@
 package xdssuite
 
 import (
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
@@ -29,22 +30,22 @@ func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	}
 	lds, err := m.Get(xdsresource.ListenerType, listenerName)
 	if err != nil {
-		panic("Get listener failed")
+		return nil, fmt.Errorf("get listener failed: %v", err)
 	}
 	listener, ok := lds.(*xdsresource.ListenerResource)
 	if !ok {
-		panic("wrong listener")
+		return nil, fmt.Errorf("wrong listener")
 	}
 
 	routeConfigName := listener.RouteConfigName
 	rds, err := m.Get(xdsresource.RouteConfigType, routeConfigName)
 	if err != nil {
-		panic("Get route failed")
+		return nil, fmt.Errorf("get route failed: %v", err)
 	}
 
 	routeConfig, ok := rds.(*xdsresource.RouteConfigResource)
 	if !ok {
-		panic("wrong route config")
+		return nil, fmt.Errorf("wrong listener")
 	}
 
 	// match the first one

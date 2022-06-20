@@ -26,16 +26,15 @@ func (r *XDSResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (
 func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Result, error) {
 	resource, err := manager.Get(xdsresource.EndpointsType, desc)
 	if err != nil {
-		return discovery.Result{}, err
+		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
 	}
 
 	cla, ok := resource.(*xdsresource.EndpointsResource)
 	if !ok {
-		panic("[xds resolver] EDS cast failed")
-		return discovery.Result{}, kerrors.ErrServiceDiscovery
+		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
 	}
 	if len(cla.Localities) == 0 {
-		panic("no eds")
+		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
 	}
 	eds := cla.Localities[0].Endpoints
 	instances := make([]discovery.Instance, len(eds))
