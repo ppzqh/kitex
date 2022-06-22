@@ -25,6 +25,8 @@ type XDSRouter struct{}
 func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	listenerName := info.To().ServiceName()
 	m, err := getXdsResourceManager()
+	m.Dump()
+
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +47,7 @@ func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 
 	routeConfig, ok := rds.(*xdsresource.RouteConfigResource)
 	if !ok {
-		return nil, fmt.Errorf("wrong listener")
+		return nil, fmt.Errorf("wrong route")
 	}
 
 	// match the first one

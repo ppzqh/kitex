@@ -8,6 +8,7 @@ type XDSResourceManager interface {
 	//GetCluster(string) (interface{}, error) //*xdsresource.ClusterResource
 	//GetEndpoint(string) (interface{}, error) // *xdsresource.EndpointsResource
 	Get(resourceType xdsresource.ResourceType, resourceName string) (interface{}, error)
+	Dump()
 }
 
 var (
