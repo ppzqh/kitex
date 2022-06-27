@@ -12,6 +12,7 @@ import (
 
 const (
 	RouterDestinationKey = "route_destination"
+	defaultTotalWeight   = 100
 )
 
 type RouteConfig struct {
@@ -90,7 +91,6 @@ func selectCluster(route xdsresource.Route) string {
 	if len(wcs) == 1 {
 		cluster = wcs[0].Name
 	} else {
-		defaultTotalWeight := 100
 		currWeight := int32(0)
 		targetWeight := rand.Int31n(int32(defaultTotalWeight))
 		for _, wc := range wcs {
