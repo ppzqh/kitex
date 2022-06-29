@@ -24,8 +24,9 @@ type xdsClient struct {
 	versionMap         map[xdsresource.ResourceType]string
 	nonceMap           map[xdsresource.ResourceType]string
 
-	streamClient    StreamClient
-	resourceUpdater ResourceUpdater
+	streamClient     StreamClient
+	streamClientLock sync.Mutex
+	resourceUpdater  ResourceUpdater
 
 	refreshInterval time.Duration
 	// request queue
@@ -121,7 +122,7 @@ func (c *xdsClient) refresh() {
 func (c *xdsClient) run() {
 	timer := time.NewTicker(c.refreshInterval)
 
-	// sender:
+	// sender
 	go func() {
 		for {
 			select {
@@ -155,7 +156,7 @@ func (c *xdsClient) run() {
 			}
 			resp, err := c.recv()
 			if err != nil {
-				panic(err)
+				klog.Errorf("[XDS] client, receive failed: %s", err)
 			}
 			c.handleResponse(resp)
 		}
@@ -166,6 +167,25 @@ func (c *xdsClient) close() {
 	close(c.closeCh)
 }
 
+func (c *xdsClient) getStreamClient() (StreamClient, error) {
+	var sc StreamClient
+	c.streamClientLock.Lock()
+	defer c.streamClientLock.Unlock()
+
+	// get stream client
+	sc = c.streamClient
+	if sc != nil {
+		return sc, nil
+	}
+	// construct stream client
+	sc, err := newStreamClient(c.config.xdsSvrCfg.serverAddress)
+	if err != nil {
+		return nil, err
+	}
+	c.streamClient = sc
+	return sc, err
+}
+
 func (c *xdsClient) send(msg interface{}) (err error) {
 	ri, ok := msg.(*requestInfo)
 	if !ok {
@@ -174,8 +194,11 @@ func (c *xdsClient) send(msg interface{}) (err error) {
 
 	// prepare request
 	req := c.prepareRequest(ri.resourceType, ri.ack)
-	sc := c.streamClient
-
+	// get stream client
+	sc, err := c.getStreamClient()
+	if err != nil {
+		return err
+	}
 	err = sc.Send(req)
 	if err != nil {
 		panic(err)
@@ -185,7 +208,10 @@ func (c *xdsClient) send(msg interface{}) (err error) {
 }
 
 func (c *xdsClient) recv() (resp *v3discovery.DiscoveryResponse, err error) {
-	sc := c.streamClient
+	sc, err := c.getStreamClient()
+	if err != nil {
+		return nil, err
+	}
 	resp, err = sc.Recv()
 	return resp, err
 }

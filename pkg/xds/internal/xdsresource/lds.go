@@ -34,6 +34,21 @@ func unmarshallListenerFilters(filters []*v3listenerpb.ListenerFilter) {
 	}
 }
 
+func unmarshallListenerFilterChain(filterChain *v3listenerpb.FilterChain) {
+	for _, f := range filterChain.Filters {
+		fmt.Printf("unmarshall filter chain, name: %s\n", f.GetName())
+		switch f.GetName() {
+		case ThriftProxy:
+			//unmarshallThriftProxy(f)
+			unmarshallFilter(f)
+		}
+	}
+}
+
+func unmarshallFilter(filter *v3listenerpb.Filter) {
+
+}
+
 func unmarshallThriftProxy(filter *v3listenerpb.ListenerFilter) {
 	p := &thrift_proxyv3.ThriftProxy{}
 	switch cfgType := filter.GetConfigType().(type) {
@@ -95,9 +110,14 @@ func UnmarshalLDS(rawResources []*any.Any) map[string]*ListenerResource {
 		if err := proto.Unmarshal(r.GetValue(), lis); err != nil {
 			panic("[xds] LDS Unmarshal error")
 		}
-
+		fmt.Println(lis.String())
+		fmt.Println(lis.GetFilterChains())
 		var res *ListenerResource
 		// thrift proxy
+		if filterChains := lis.GetFilterChains(); filterChains != nil {
+			fmt.Println("fliter chains")
+			unmarshallListenerFilterChain(filterChains[0])
+		}
 		if filters := lis.GetListenerFilters(); filters != nil {
 			fmt.Println("fliter")
 			unmarshallListenerFilters(filters)
