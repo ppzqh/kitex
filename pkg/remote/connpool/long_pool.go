@@ -19,6 +19,7 @@ package connpool
 
 import (
 	"context"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"net"
 	"reflect"
 	"sync"
@@ -120,7 +121,15 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		}
 		_ = conn.Conn.Close()
 	}
+	klog.Infof("[conn pool] dial new connection, addr: %s, time: %s\n", p.addr, time.Now())
 	conn, err := d.DialTimeout(p.addr.Network(), p.addr.String(), timeout)
+	var tag string
+	if err != nil {
+		tag = "failed"
+	} else {
+		tag = "succeed"
+	}
+	klog.Infof("[conn pool] dial finished, addr: %s, status: %s, time: %s\n", p.addr, tag, time.Now())
 	if err != nil {
 		reporter.ConnFailed(Long, p.serviceName, p.addr)
 		return nil, err
@@ -135,11 +144,13 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 
 func (p *peer) put(c *longConn) error {
 	if !p.globalIdle.Inc() {
+		klog.Infof("[conn pool] close conn, addr: %s, time: %s\n", p.addr, time.Now())
 		return c.Conn.Close()
 	}
 	c.deadline = time.Now().Add(p.maxIdleTimeout)
 	err := p.ring.Push(c)
 	if err != nil {
+		klog.Infof("[conn pool] close conn, addr: %s, time: %s\n", p.addr, time.Now())
 		p.globalIdle.Dec()
 		return c.Conn.Close()
 	}
