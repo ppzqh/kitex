@@ -28,6 +28,7 @@ func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	m, err := getXdsResourceManager()
 	m.Dump()
 
+	listenerName = "kitex-client.default.svc.cluster.local:80"
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +55,9 @@ func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	// match the first one
 	// TODO: only test
 	tags := make(map[string]string)
-	path := info.From().Method()
+	path := info.To().Method()
 
-	var matchedRoute xdsresource.Route
+	var matchedRoute *xdsresource.Route
 	matched := false
 	for _, vh := range routeConfig.VirtualHosts {
 		// TODO: match the name
@@ -78,25 +79,37 @@ func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	}
 	// select cluster
 	cluster := selectCluster(matchedRoute)
+	if cluster == "" {
+		return nil, fmt.Errorf("no cluster selected")
+	}
 	return &RouteConfig{
 		RPCTimeout:  matchedRoute.Timeout,
 		Destination: cluster,
 	}, nil
 }
 
-func selectCluster(route xdsresource.Route) string {
+func selectCluster(route *xdsresource.Route) string {
 	// handle weighted cluster
 	wcs := route.WeightedClusters
+	if wcs == nil || len(wcs) == 0 {
+		return ""
+	}
+
 	var cluster string
 	if len(wcs) == 1 {
 		cluster = wcs[0].Name
 	} else {
+		fmt.Println("WEIGHTED CLUSTER, len: %d", len(wcs))
 		currWeight := int32(0)
 		targetWeight := rand.Int31n(int32(defaultTotalWeight))
+		fmt.Println(targetWeight)
 		for _, wc := range wcs {
+			fmt.Printf("name: %s, weight: %d\n", wc.Name, wc.Weight)
+
 			currWeight += int32(wc.Weight)
 			if currWeight >= targetWeight {
 				cluster = wc.Name
+				break
 			}
 		}
 	}

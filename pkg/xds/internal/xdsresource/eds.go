@@ -2,6 +2,7 @@ package xdsresource
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/utils"
 	v3endpointpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -39,11 +40,10 @@ type Locality struct {
 }
 
 type EndpointsResource struct {
-	Name       string
 	Localities []*Locality
 }
 
-func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) *EndpointsResource {
+func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*EndpointsResource, error) {
 	localities := make([]*Locality, len(cla.GetEndpoints()))
 	for idx1, leps := range cla.GetEndpoints() {
 		eps := make([]*Endpoint, len(leps.GetLbEndpoints()))
@@ -63,21 +63,23 @@ func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) *En
 		}
 	}
 	return &EndpointsResource{
-		Name:       cla.GetClusterName(),
 		Localities: localities,
-	}
+	}, nil
 }
 
-func UnmarshalEDS(rawResources []*any.Any) map[string]*EndpointsResource {
+func UnmarshalEDS(rawResources []*any.Any) (map[string]*EndpointsResource, error) {
 	ret := make(map[string]*EndpointsResource, len(rawResources))
 
 	for _, r := range rawResources {
 		cla := &v3endpointpb.ClusterLoadAssignment{}
 		if err := proto.Unmarshal(r.GetValue(), cla); err != nil {
-			panic("Unmarshal error")
+			return nil, fmt.Errorf("unmarshal endpoint failed: %s", err)
 		}
-		cluster := unmarshalClusterLoadAssignment(cla)
-		ret[cla.GetClusterName()] = cluster
+		endpoints, err := unmarshalClusterLoadAssignment(cla)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal ClusterLoadAssignment %s failed: %s", cla.GetClusterName(), err)
+		}
+		ret[cla.GetClusterName()] = endpoints
 	}
-	return ret
+	return ret, nil
 }

@@ -2,6 +2,7 @@ package xdssuite
 
 import (
 	"context"
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/discovery"
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -26,16 +27,16 @@ func (r *XDSResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (
 func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Result, error) {
 	resource, err := manager.Get(xdsresource.EndpointsType, desc)
 	if err != nil {
+		fmt.Println("ERROR1")
 		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
 	}
 
 	cla, ok := resource.(*xdsresource.EndpointsResource)
-	if !ok {
-		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
+	if !ok || len(cla.Localities) == 0 {
+		fmt.Println("ERROR2")
+		return discovery.Result{}, kerrors.ErrServiceDiscovery
 	}
-	if len(cla.Localities) == 0 {
-		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
-	}
+
 	eds := cla.Localities[0].Endpoints
 	instances := make([]discovery.Instance, len(eds))
 	for i, e := range eds {

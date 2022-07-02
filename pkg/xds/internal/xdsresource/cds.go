@@ -26,7 +26,6 @@ type CircuitBreakerConfig struct {
 }
 
 type ClusterResource struct {
-	Name          string
 	DiscoveryType  ClusterDiscoveryType
 	LbPolicy       ClusterLbPolicy
 	CircuitBreaker CircuitBreakerConfig
@@ -53,25 +52,29 @@ func (r *ClusterResource) InlineEDS() *EndpointsResource {
 	return r.InlineEndpoints
 }
 
-func UnmarshalCDS(rawResources []*any.Any) map[string]*ClusterResource {
+func UnmarshalCDS(rawResources []*any.Any) (map[string]*ClusterResource, error) {
 	ret := make(map[string]*ClusterResource, len(rawResources))
 	for _, r := range rawResources {
 		c := &v3clusterpb.Cluster{}
 		if err := proto.Unmarshal(r.GetValue(), c); err != nil {
 			panic("Unmarshal error")
 		}
+		// inline eds
+		inlineEndpoints, err := unmarshalClusterLoadAssignment(c.GetLoadAssignment())
+		if err != nil {
+			return nil, err
+		}
 		// TODO: circult breaker and outlier detection
 		res := &ClusterResource{
-			Name:            c.GetName(),
 			DiscoveryType:   convertDiscoveryType(c.GetType()),
 			LbPolicy:        convertLbPolicy(c.GetLbPolicy()),
 			EndpointName:    c.GetEdsClusterConfig().GetServiceName(),
-			InlineEndpoints: unmarshalClusterLoadAssignment(c.GetLoadAssignment()),
+			InlineEndpoints: inlineEndpoints,
 		}
 		ret[c.GetName()] = res
 	}
 
-	return ret
+	return ret, nil
 }
 
 func convertDiscoveryType(t v3clusterpb.Cluster_DiscoveryType) ClusterDiscoveryType {

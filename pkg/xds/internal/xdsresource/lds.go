@@ -4,7 +4,6 @@ import (
 	"fmt"
 	v3listenerpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	v3httppb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
-	thrift_proxyv3 "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/thrift_proxy/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
 	"strings"
@@ -16,127 +15,72 @@ const (
 	// HTTPConnectionManager network filter
 	HTTPConnectionManager = "envoy.filters.network.http_connection_manager"
 	// ThriftProxy network filter
-	ThriftProxy = "envoy.filters.network.thrift_proxy"
+	// ThriftProxy = "envoy.filters.network.thrift_proxy" // Has been removed from Istio
 )
 
 type ListenerResource struct {
-	Name              string
 	RouteConfigName   string
 	InlineRouteConfig *RouteConfigResource
 }
 
-func unmarshallListenerFilters(filters []*v3listenerpb.ListenerFilter) {
-	for _, f := range filters {
-		switch f.GetName() {
-		case ThriftProxy:
-			unmarshallThriftProxy(f)
-		}
-	}
-}
-
-func unmarshallListenerFilterChain(filterChain *v3listenerpb.FilterChain) {
-	for _, f := range filterChain.Filters {
-		fmt.Printf("unmarshall filter chain, name: %s\n", f.GetName())
-		switch f.GetName() {
-		case ThriftProxy:
-			//unmarshallThriftProxy(f)
-			unmarshallFilter(f)
-		}
-	}
-}
-
-func unmarshallFilter(filter *v3listenerpb.Filter) {
-
-}
-
-func unmarshallThriftProxy(filter *v3listenerpb.ListenerFilter) {
-	p := &thrift_proxyv3.ThriftProxy{}
-	switch cfgType := filter.GetConfigType().(type) {
-	case *v3listenerpb.ListenerFilter_TypedConfig:
-		if err := proto.Unmarshal(cfgType.TypedConfig.GetValue(), p); err != nil {
-			panic("failed to unmarshal thrift proxy")
-		}
-		fmt.Println("thrift proxy, rds name:", p.GetRouteConfig().GetName())
-	}
-	routes := p.RouteConfig.GetRoutes()
-	for _, r := range routes {
-		match := r.GetMatch()
-		switch t := match.GetMatchSpecifier().(type) {
-		case *thrift_proxyv3.RouteMatch_MethodName:
-			_ = t.MethodName
-		case *thrift_proxyv3.RouteMatch_ServiceName:
-			_ = t.ServiceName
-		}
-		r.GetRoute()
-		//action := r.GetRoute()
-
-	}
-}
-
-func unmarshallApiListener(apiListener *v3listenerpb.ApiListener) *ListenerResource {
+func unmarshallApiListener(apiListener *v3listenerpb.ApiListener) (*ListenerResource, error) {
 	if apiListener.GetApiListener() == nil {
-		return nil
+		return nil, fmt.Errorf("apiListener is empty")
 	}
-
+	// unmarshal listener
 	apiLis := &v3httppb.HttpConnectionManager{}
 	if err := proto.Unmarshal(apiListener.GetApiListener().GetValue(), apiLis); err != nil {
-		panic("failed to unmarshal api_listner")
+		return nil, fmt.Errorf("unmarshal api listener failed: %s", err)
 	}
-
+	// convert listener
+	// 1. RDS
+	// 2. inline route config
 	var res *ListenerResource
 	switch apiLis.RouteSpecifier.(type) {
 	case *v3httppb.HttpConnectionManager_Rds:
-		res = &ListenerResource{RouteConfigName: apiLis.GetRds().RouteConfigName}
-	case *v3httppb.HttpConnectionManager_RouteConfig:
-		var inlineRDS *RouteConfigResource
-		if apiLis.GetRouteConfig() != nil {
-			inlineRDS = unmarshalRouteConfig(apiLis.GetRouteConfig())
+		if apiLis.GetRds() == nil {
+			return nil, fmt.Errorf("no Rds in the apiListener")
 		}
-		res = &ListenerResource{
-			RouteConfigName:   inlineRDS.Name,
-			InlineRouteConfig: inlineRDS,
+		if apiLis.GetRds().GetRouteConfigName() == "" {
+			return nil, fmt.Errorf("no route config name")
+		}
+		res = &ListenerResource{RouteConfigName: apiLis.GetRds().GetRouteConfigName()}
+	case *v3httppb.HttpConnectionManager_RouteConfig:
+		if rcfg := apiLis.GetRouteConfig(); rcfg == nil {
+			return nil, fmt.Errorf("no inline route config")
+		} else {
+			inlineRouteConfig, err := unmarshalRouteConfig(rcfg)
+			if err != nil {
+				return nil, err
+			}
+			res = &ListenerResource{
+				RouteConfigName:   apiLis.GetRouteConfig().GetName(),
+				InlineRouteConfig: inlineRouteConfig,
+			}
 		}
 	}
-
-	return res
+	return res, nil
 }
 
-
-func UnmarshalLDS(rawResources []*any.Any) map[string]*ListenerResource {
+func UnmarshalLDS(rawResources []*any.Any) (map[string]*ListenerResource, error) {
 	ret := make(map[string]*ListenerResource, len(rawResources))
 
 	for _, r := range rawResources {
 		lis := &v3listenerpb.Listener{}
 		if err := proto.Unmarshal(r.GetValue(), lis); err != nil {
-			panic("[xds] LDS Unmarshal error")
+			return nil, fmt.Errorf("unmarshal listener failed: %s", err)
 		}
-		fmt.Println(lis.String())
-		fmt.Println(lis.GetFilterChains())
-		var res *ListenerResource
-		// thrift proxy
-		if filterChains := lis.GetFilterChains(); filterChains != nil {
-			fmt.Println("fliter chains")
-			unmarshallListenerFilterChain(filterChains[0])
-		}
-		if filters := lis.GetListenerFilters(); filters != nil {
-			fmt.Println("fliter")
-			unmarshallListenerFilters(filters)
-		}
-
 		// http listener
 		if apiListener := lis.GetApiListener(); apiListener != nil {
-			res = unmarshallApiListener(lis.GetApiListener())
-			// TODO: check if the Name is correct
-			//fmt.Println("[xds] listener:", lis.String())
-			name := parseListenerName(lis.GetName())
-			res.Name = name
-			ret[name] = res
-			continue
+			res, err := unmarshallApiListener(apiListener)
+			if err != nil {
+				return nil, fmt.Errorf("unmarshal listener %s failed: %s", lis.GetName(), err)
+			}
+			ret[lis.GetName()] = res
 		}
-
 	}
 
-	return ret
+	return ret, nil
 }
 
 func parseListenerName(name string) string {

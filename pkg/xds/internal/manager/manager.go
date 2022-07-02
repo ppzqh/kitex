@@ -72,37 +72,6 @@ func newXdsResourceCache() map[xdsresource.ResourceType]map[string]xdsresource.R
 	return c
 }
 
-//func (m *xdsResourceManager) GetListener(resourceName string) (interface{}, error) {
-//	res, err := m.Get(xdsresource.ListenerType, resourceName)
-//	if err != nil {
-//		panic("Get failed")
-//	}
-//	return res
-//}
-//
-//func (m *xdsResourceManager) GetRoute(resourceName string) (interface{}, error) {
-//	res, err := m.Get(xdsresource.RouteConfigType, resourceName)
-//	if err != nil {
-//		panic("Get failed")
-//	}
-//	return res
-//}
-//
-//func (m *xdsResourceManager) GetCluster(resourceName string) (interface{}, error) {
-//	res, err := m.Get(xdsresource.ClusterType, resourceName)
-//	if err != nil {
-//		panic("Get failed")
-//	}
-//	return res
-//}
-//func (m *xdsResourceManager) GetEndpoint(resourceName string) (interface{}, error) {
-//	res, err := m.Get(xdsresource.EndpointsType, resourceName)
-//	if err != nil {
-//		panic("Get failed")
-//	}
-//	return res
-//}
-
 func (m *xdsResourceManager) Get(resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
 	// Get from cache
 	if r, ok := m.cache[resourceType][resourceName]; ok {
@@ -190,8 +159,7 @@ type ResourceUpdater interface {
 
 func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.ListenerResource) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	inlineRDS := make(map[string]*xdsresource.RouteConfigResource)
 	for name, res := range up {
 		m.cache[xdsresource.ListenerType][name] = res
 		if chs, exist := m.updateChMap[xdsresource.ListenerType][name]; exist {
@@ -202,7 +170,14 @@ func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.L
 			}
 			m.updateChMap[xdsresource.ListenerType][name] = m.updateChMap[xdsresource.ListenerType][name][0:0]
 		}
+		if res.InlineRouteConfig != nil {
+			inlineRDS[res.RouteConfigName] = res.InlineRouteConfig
+		}
 	}
+	m.mu.Unlock()
+
+	// update inlineRDS to the cache
+	m.UpdateRouteConfigResource(inlineRDS)
 }
 
 func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresource.RouteConfigResource) {
@@ -224,8 +199,7 @@ func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresourc
 
 func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.ClusterResource) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	inlineEDS := make(map[string]*xdsresource.EndpointsResource)
 	for name, res := range up {
 		m.cache[xdsresource.ClusterType][name] = res
 		if chs, exist := m.updateChMap[xdsresource.ClusterType][name]; exist {
@@ -236,7 +210,13 @@ func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.Cl
 			}
 			m.updateChMap[xdsresource.ClusterType][name] = m.updateChMap[xdsresource.ClusterType][name][0:0]
 		}
+		if res.InlineEndpoints != nil {
+			inlineEDS[res.EndpointName] = res.InlineEndpoints
+		}
 	}
+	m.mu.Unlock()
+	// update inlineEDS to the cache
+	m.UpdateEndpointsResource(inlineEDS)
 }
 
 func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.EndpointsResource) {
