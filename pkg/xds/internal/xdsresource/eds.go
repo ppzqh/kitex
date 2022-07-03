@@ -44,6 +44,9 @@ type EndpointsResource struct {
 }
 
 func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*EndpointsResource, error) {
+	if cla == nil || len(cla.GetEndpoints()) == 0 {
+		return nil, nil
+	}
 	localities := make([]*Locality, len(cla.GetEndpoints()))
 	for idx1, leps := range cla.GetEndpoints() {
 		eps := make([]*Endpoint, len(leps.GetLbEndpoints()))

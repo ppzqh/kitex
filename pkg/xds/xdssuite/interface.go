@@ -1,13 +1,12 @@
 package xdssuite
 
-import "github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
+import (
+	"context"
+	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
+)
 
 type XDSResourceManager interface {
-	//GetListener(string) (interface{}, error) //*xdsresource.ListenerResource
-	//GetRoute(string) (interface{}, error) //*xdsresource.RouteConfigResource
-	//GetCluster(string) (interface{}, error) //*xdsresource.ClusterResource
-	//GetEndpoint(string) (interface{}, error) // *xdsresource.EndpointsResource
-	Get(resourceType xdsresource.ResourceType, resourceName string) (interface{}, error)
+	Get(ctx context.Context, resourceType xdsresource.ResourceType, resourceName string) (interface{}, error)
 	Dump()
 }
 
@@ -16,13 +15,14 @@ var (
 	newXDSResourceManager func() (XDSResourceManager, error)
 )
 
-func BuildXDSResourceManager(f func() (XDSResourceManager, error)) {
+func BuildXDSResourceManager(f func() (XDSResourceManager, error)) error {
 	newXDSResourceManager = f
 	m, err := newXDSResourceManager()
 	if err != nil {
-		panic(err.Error())
+		return err
 	}
 	manager = m
+	return nil
 }
 
 func getXdsResourceManager() (XDSResourceManager, error) {

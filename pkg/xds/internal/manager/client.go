@@ -1,9 +1,12 @@
 package manager
 
 import (
+	"context"
 	"fmt"
+	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/streaming"
+	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3/aggregateddiscoveryservice"
 	v3discovery "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/service"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"github.com/golang/protobuf/ptypes/any"
@@ -37,13 +40,22 @@ type xdsClient struct {
 	closeCh chan struct{}
 }
 
+func newStreamClient(addr string) (StreamClient, error) {
+	cli, err := aggregateddiscoveryservice.NewClient(addr, client.WithHostPorts(addr))
+	if err != nil {
+		panic(err)
+	}
+	sc, err := cli.StreamAggregatedResources(context.Background())
+	return sc, err
+}
+
 func newXdsClient(bCfg *BootstrapConfig, updater ResourceUpdater) (*xdsClient, error) {
-	//build stream client that communicates with the xds server
+	// build stream client that communicates with the xds server
 	sc, err := newStreamClient(bCfg.xdsSvrCfg.serverAddress)
 	if err != nil {
 		return nil, fmt.Errorf("[XDS] client: construct stream client failed, %s", err.Error())
 	}
-
+	// subscribed resource map
 	sr := make(map[xdsresource.ResourceType]map[string]bool)
 	for rt := range xdsresource.ResourceTypeToUrl {
 		sr[rt] = make(map[string]bool)
@@ -168,6 +180,7 @@ func (c *xdsClient) run() {
 
 func (c *xdsClient) close() {
 	close(c.closeCh)
+	c.streamClient.Close()
 }
 
 func (c *xdsClient) getStreamClient() (StreamClient, error) {

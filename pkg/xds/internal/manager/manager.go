@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/cloudwego/kitex/client"
-	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3/aggregateddiscoveryservice"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"io/ioutil"
 	"sync"
@@ -15,23 +14,18 @@ import (
 type xdsResourceManager struct {
 	// client communicates with the control plane
 	client *xdsClient
+
 	// cache stores all the resources
 	cache map[xdsresource.ResourceType]map[string]xdsresource.Resource
+	// TODO: how to clean the cache? maybe add a ref count of each resource
+	//cacheRef map[xdsresource.ResourceType]map[string]int
+
 	// updateChMap maintains the channel for notifying resource update
 	updateChMap map[xdsresource.ResourceType]map[string][]chan struct{}
 	mu          sync.Mutex
 
 	// TODO: refactor the dump logic
 	dumpPath string
-}
-
-func newStreamClient(addr string) (StreamClient, error) {
-	cli, err := aggregateddiscoveryservice.NewClient(addr, client.WithHostPorts(addr))
-	if err != nil {
-		panic(err)
-	}
-	sc, err := cli.StreamAggregatedResources(context.Background())
-	return sc, err
 }
 
 func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManager, error) {
@@ -44,15 +38,7 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 		}
 	}
 
-	up := make(map[xdsresource.ResourceType]map[string][]chan struct{})
-	for rt := range xdsresource.ResourceTypeToUrl {
-		up[rt] = make(map[string][]chan struct{})
-	}
-
-	m := &xdsResourceManager{
-		cache:       newXdsResourceCache(),
-		updateChMap: up,
-	}
+	m := newXdsResourceManager()
 	// Initial xds client
 	cli, err := newXdsClient(bootstrapConfig, m)
 	if err != nil {
@@ -64,15 +50,21 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	return m, nil
 }
 
-func newXdsResourceCache() map[xdsresource.ResourceType]map[string]xdsresource.Resource {
-	c := make(map[xdsresource.ResourceType]map[string]xdsresource.Resource)
-	for t, _ := range xdsresource.ResourceTypeToUrl {
-		c[t] = make(map[string]xdsresource.Resource)
+func newXdsResourceManager() *xdsResourceManager {
+	cache := make(map[xdsresource.ResourceType]map[string]xdsresource.Resource)
+	chMap := make(map[xdsresource.ResourceType]map[string][]chan struct{})
+	for rt := range xdsresource.ResourceTypeToUrl {
+		cache[rt] = make(map[string]xdsresource.Resource)
+		chMap[rt] = make(map[string][]chan struct{})
 	}
-	return c
+
+	return &xdsResourceManager{
+		cache:       cache,
+		updateChMap: chMap,
+	}
 }
 
-func (m *xdsResourceManager) Get(resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
+func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
 	// Get from cache
 	if r, ok := m.cache[resourceType][resourceName]; ok {
 		return r, nil
@@ -91,18 +83,16 @@ func (m *xdsResourceManager) Get(resourceType xdsresource.ResourceType, resource
 	m.updateChMap[resourceType][resourceName] = chs
 	m.mu.Unlock()
 
-	// Set timeout
+	// Set fetch timeout
 	// TODO: timeout should be specified in the config of xdsResourceManager
 	timeout := defaultXDSFetchTimeout
 	t := time.NewTimer(timeout)
-	var err error
+
 	select {
 	case <-updateCh:
 	case <-t.C:
-		err = fmt.Errorf("[XDS] client: fetch failed, timeout")
-	}
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[XDS] client, fetch %s resource[%s] failed, timeout %s",
+			xdsresource.ResourceTypeToName[resourceType], resourceName, timeout)
 	}
 
 	m.mu.Lock()
@@ -117,7 +107,7 @@ func (m *xdsResourceManager) Subscribe(resourceType xdsresource.ResourceType, re
 }
 
 func (m *xdsResourceManager) Dump() {
-	for t := range xdsresource.ResourceUrlToName {
+	for t := range xdsresource.ResourceTypeToName {
 		m.DumpOne(t)
 	}
 }
@@ -131,23 +121,15 @@ func (m *xdsResourceManager) DumpOne(resourceType xdsresource.ResourceType) {
 	if err != nil {
 		panic(err)
 	}
-	path := m.dumpPath + xdsresource.ResourceUrlToName[resourceType] + ".json"
+	path := m.dumpPath + xdsresource.ResourceTypeToName[resourceType] + ".json"
 	if err := ioutil.WriteFile(path, data, 0o644); err != nil {
-		panic("dump error")
+		klog.Warnf("dump xds resource failed\n")
 	}
 }
 
 func (m *xdsResourceManager) Close() {
 	// close xds client
 	m.client.close()
-	// clear all cache
-	for k := range m.cache {
-		delete(m.cache, k)
-	}
-	// clear the updateCb
-	for k := range m.updateChMap {
-		delete(m.cache, k)
-	}
 }
 
 type ResourceUpdater interface {
@@ -177,7 +159,9 @@ func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.L
 	m.mu.Unlock()
 
 	// update inlineRDS to the cache
-	m.UpdateRouteConfigResource(inlineRDS)
+	if len(inlineRDS) != 0 {
+		m.UpdateRouteConfigResource(inlineRDS)
+	}
 }
 
 func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresource.RouteConfigResource) {
@@ -216,7 +200,9 @@ func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.Cl
 	}
 	m.mu.Unlock()
 	// update inlineEDS to the cache
-	m.UpdateEndpointsResource(inlineEDS)
+	if len(inlineEDS) != 0 {
+		m.UpdateEndpointsResource(inlineEDS)
+	}
 }
 
 func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.EndpointsResource) {

@@ -72,6 +72,8 @@ func discoveryEventHandler(name string, bus event.Bus, queue event.Queue) func(d
 	}
 }
 
+// newXDSRouterMWBuilder creates a middleware for request routing via XDS.
+// This middleware picks one upstream cluster and set RPCTimeout based on route config in XDS.
 func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 	router := &xdssuite.XDSRouter{}
 	return func(ctx context.Context) endpoint.Middleware {
@@ -82,15 +84,15 @@ func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 				if dest == nil {
 					return kerrors.ErrNoDestService
 				}
-				rcfg, err := router.Route(ri)
+				res, err := router.Route(ctx, ri)
 				if err != nil {
 					return err
 				}
 				// set destination
-				_ = remoteinfo.AsRemoteInfo(dest).SetTag(xdssuite.RouterDestinationKey, rcfg.Destination)
-				remoteinfo.AsRemoteInfo(dest).SetTagLock(xdssuite.RouterDestinationKey)
+				_ = remoteinfo.AsRemoteInfo(dest).SetTag(xdssuite.RouterClusterKey, res.ClusterPicked)
+				remoteinfo.AsRemoteInfo(dest).SetTagLock(xdssuite.RouterClusterKey)
 				// set timeout
-				_ = rpcinfo.AsMutableRPCConfig(ri.Config()).SetRPCTimeout(rcfg.RPCTimeout)
+				_ = rpcinfo.AsMutableRPCConfig(ri.Config()).SetRPCTimeout(res.RPCTimeout)
 				ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)
 				return next(ctx, request, response)
 			}

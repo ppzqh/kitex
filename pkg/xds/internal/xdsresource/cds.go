@@ -1,6 +1,7 @@
 package xdsresource
 
 import (
+	"fmt"
 	v3clusterpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
@@ -22,14 +23,9 @@ const (
 	ClusterLbRingHash
 )
 
-type CircuitBreakerConfig struct {
-}
-
 type ClusterResource struct {
-	DiscoveryType  ClusterDiscoveryType
-	LbPolicy       ClusterLbPolicy
-	CircuitBreaker CircuitBreakerConfig
-
+	DiscoveryType   ClusterDiscoveryType
+	LbPolicy        ClusterLbPolicy
 	EndpointName    string
 	InlineEndpoints *EndpointsResource
 }
@@ -57,7 +53,7 @@ func UnmarshalCDS(rawResources []*any.Any) (map[string]*ClusterResource, error) 
 	for _, r := range rawResources {
 		c := &v3clusterpb.Cluster{}
 		if err := proto.Unmarshal(r.GetValue(), c); err != nil {
-			panic("Unmarshal error")
+			return nil, fmt.Errorf("unmarshal cluster failed: %s", err)
 		}
 		// inline eds
 		inlineEndpoints, err := unmarshalClusterLoadAssignment(c.GetLoadAssignment())

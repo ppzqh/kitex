@@ -1,5 +1,17 @@
 package xdsresource
 
+type Resource interface{}
+
+type ResourceType int
+
+const (
+	UnknownResource ResourceType = iota
+	ListenerType
+	RouteConfigType
+	ClusterType
+	EndpointsType
+)
+
 // Resource types in xDS v3.
 const (
 	apiTypePrefix          = "type.googleapis.com/"
@@ -13,16 +25,6 @@ const (
 
 	// AnyType is used only by ADS
 	AnyType = ""
-)
-
-type ResourceType int
-
-const (
-	UnknownResource ResourceType = iota
-	ListenerType
-	RouteConfigType
-	ClusterType
-	EndpointsType
 )
 
 var ResourceTypeToUrl = map[ResourceType]string{
@@ -39,12 +41,9 @@ var ResourceUrlToType = map[string]ResourceType{
 	EndpointTypeUrl: EndpointsType,
 }
 
-var ResourceUrlToName = map[ResourceType]string{
+var ResourceTypeToName = map[ResourceType]string{
 	ListenerType:    "listener",
 	RouteConfigType: "route",
 	ClusterType:     "cluster",
 	EndpointsType:   "endpoint",
-}
-
-type Resource interface {
 }

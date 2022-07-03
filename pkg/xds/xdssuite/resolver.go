@@ -16,7 +16,7 @@ type XDSResolver struct {
 
 // Target should return a description for the given target that is suitable for being a key for cache.
 func (r *XDSResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (description string) {
-	dest, ok := target.Tag(RouterDestinationKey)
+	dest, ok := target.Tag(RouterClusterKey)
 	if !ok {
 		return target.ServiceName()
 	}
@@ -25,21 +25,12 @@ func (r *XDSResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (
 
 // Resolve returns a list of instances for the given description of a target.
 func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Result, error) {
-	resource, err := manager.Get(xdsresource.EndpointsType, desc)
+	eps, err := getEndpoints(ctx, desc)
 	if err != nil {
-		fmt.Println("ERROR1")
 		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
 	}
-
-	cla, ok := resource.(*xdsresource.EndpointsResource)
-	if !ok || len(cla.Localities) == 0 {
-		fmt.Println("ERROR2")
-		return discovery.Result{}, kerrors.ErrServiceDiscovery
-	}
-
-	eds := cla.Localities[0].Endpoints
-	instances := make([]discovery.Instance, len(eds))
-	for i, e := range eds {
+	instances := make([]discovery.Instance, len(eps))
+	for i, e := range eps {
 		instances[i] = discovery.NewInstance(e.Addr.Network(), e.Addr.String(), e.Weight, e.Meta)
 	}
 	res := discovery.Result{
@@ -48,6 +39,28 @@ func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Resul
 		Instances: instances,
 	}
 	return res, nil
+}
+
+// getEndpoints gets endpoints for this desc from xdsResourceManager
+func getEndpoints(ctx context.Context, desc string) ([]*xdsresource.Endpoint, error) {
+	m, err := getXdsResourceManager()
+	if err != nil {
+		return nil, err
+	}
+	resource, err := m.Get(ctx, xdsresource.EndpointsType, desc)
+	if err != nil {
+		return nil, err
+	}
+
+	cla, ok := resource.(*xdsresource.EndpointsResource)
+	if !ok {
+		return nil, fmt.Errorf("wrong endpoint resource for cluster: %s", desc)
+	}
+	if len(cla.Localities) == 0 {
+		return nil, fmt.Errorf("no endpoints for cluster: %s", desc)
+	}
+
+	return cla.Localities[0].Endpoints, nil
 }
 
 func (r *XDSResolver) Diff(cacheKey string, prev, next discovery.Result) (discovery.Change, bool) {

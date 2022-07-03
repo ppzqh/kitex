@@ -1,6 +1,7 @@
 package xdssuite
 
 import (
+	"context"
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -11,28 +12,49 @@ import (
 )
 
 const (
-	RouterDestinationKey = "route_destination"
-	defaultTotalWeight   = 100
+	RouterClusterKey         = "route_cluster_picked"
+	defaultTotalWeight int32 = 100
 )
 
-type RouteConfig struct {
-	RPCTimeout  time.Duration
-	Destination string
+type RouteResult struct {
+	RPCTimeout    time.Duration
+	ClusterPicked string
 	// TODO: retry policy also in RDS
 }
 
 type XDSRouter struct{}
 
-func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
-	listenerName := info.To().ServiceName()
-	m, err := getXdsResourceManager()
-	m.Dump()
-
-	listenerName = "kitex-client.default.svc.cluster.local:80"
+func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult, error) {
+	routeConfig, err := getRouteConfig(ctx, ri)
 	if err != nil {
 		return nil, err
 	}
-	lds, err := m.Get(xdsresource.ListenerType, listenerName)
+
+	matchedRoute := matchRoute(ri, routeConfig)
+	// no matched route
+	if matchedRoute == nil {
+		return nil, kerrors.ErrRoute
+	}
+
+	cluster := selectCluster(matchedRoute)
+	if cluster == "" {
+		return nil, fmt.Errorf("no cluster selected")
+	}
+	return &RouteResult{
+		RPCTimeout:    matchedRoute.Timeout,
+		ClusterPicked: cluster,
+	}, nil
+}
+
+// getRouteConfig gets the route config from xdsResourceManager
+func getRouteConfig(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.RouteConfigResource, error) {
+	m, err := getXdsResourceManager()
+	if err != nil {
+		return nil, err
+	}
+	// TODO: confirm the listener name
+	listenerName := ri.From().ServiceName()
+	lds, err := m.Get(ctx, xdsresource.ListenerType, listenerName)
 	if err != nil {
 		return nil, fmt.Errorf("get listener failed: %v", err)
 	}
@@ -40,58 +62,46 @@ func (r *XDSRouter) Route(info rpcinfo.RPCInfo) (*RouteConfig, error) {
 	if !ok {
 		return nil, fmt.Errorf("wrong listener")
 	}
-
+	// Get the route config
 	routeConfigName := listener.RouteConfigName
-	rds, err := m.Get(xdsresource.RouteConfigType, routeConfigName)
+	rds, err := m.Get(ctx, xdsresource.RouteConfigType, routeConfigName)
 	if err != nil {
 		return nil, fmt.Errorf("get route failed: %v", err)
 	}
-
 	routeConfig, ok := rds.(*xdsresource.RouteConfigResource)
 	if !ok {
 		return nil, fmt.Errorf("wrong route")
 	}
+	return routeConfig, nil
+}
 
-	// match the first one
-	// TODO: only test
-	tags := make(map[string]string)
-	path := info.To().Method()
-
+// matchRoute matchs one route in the provided routeConfig based on information in RPCInfo
+func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
+	path := ri.To().Method()
+	toService := ri.To().ServiceName()
 	var matchedRoute *xdsresource.Route
-	matched := false
 	for _, vh := range routeConfig.VirtualHosts {
 		// TODO: match the name
-		if !strings.Contains(vh.Name, info.To().ServiceName()) {
+		if !strings.Contains(vh.Name, toService) {
 			continue
 		}
+		// match the first route
 		for _, r := range vh.Routes {
 			match := r.Match
-			if match.Matched(path, tags) {
-				matched = true
+			if match.Matched(path, nil) {
 				matchedRoute = r
 				break
 			}
 		}
 	}
-
-	if !matched {
-		return nil, kerrors.ErrRoute
-	}
-	// select cluster
-	cluster := selectCluster(matchedRoute)
-	if cluster == "" {
-		return nil, fmt.Errorf("no cluster selected")
-	}
-	return &RouteConfig{
-		RPCTimeout:  matchedRoute.Timeout,
-		Destination: cluster,
-	}, nil
+	return matchedRoute
 }
 
+// selectCluster selects cluster based on the weight
 func selectCluster(route *xdsresource.Route) string {
 	// handle weighted cluster
 	wcs := route.WeightedClusters
-	if wcs == nil || len(wcs) == 0 {
+	if len(wcs) == 0 {
 		return ""
 	}
 
@@ -99,14 +109,10 @@ func selectCluster(route *xdsresource.Route) string {
 	if len(wcs) == 1 {
 		cluster = wcs[0].Name
 	} else {
-		fmt.Println("WEIGHTED CLUSTER, len: %d", len(wcs))
 		currWeight := int32(0)
-		targetWeight := rand.Int31n(int32(defaultTotalWeight))
-		fmt.Println(targetWeight)
+		targetWeight := rand.Int31n(defaultTotalWeight)
 		for _, wc := range wcs {
-			fmt.Printf("name: %s, weight: %d\n", wc.Name, wc.Weight)
-
-			currWeight += int32(wc.Weight)
+			currWeight += wc.Weight
 			if currWeight >= targetWeight {
 				cluster = wc.Name
 				break

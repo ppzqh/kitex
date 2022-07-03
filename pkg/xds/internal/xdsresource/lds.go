@@ -9,15 +9,6 @@ import (
 	"strings"
 )
 
-// Network filter names
-// github.com/envoyproxy/go-control-plane/pkg/wellknown
-const (
-	// HTTPConnectionManager network filter
-	HTTPConnectionManager = "envoy.filters.network.http_connection_manager"
-	// ThriftProxy network filter
-	// ThriftProxy = "envoy.filters.network.thrift_proxy" // Has been removed from Istio
-)
-
 type ListenerResource struct {
 	RouteConfigName   string
 	InlineRouteConfig *RouteConfigResource
