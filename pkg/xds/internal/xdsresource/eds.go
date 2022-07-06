@@ -3,6 +3,7 @@ package xdsresource
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/utils"
 	v3endpointpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -13,14 +14,14 @@ import (
 
 type Endpoint struct {
 	Addr   net.Addr
-	Weight int
+	Weight uint32
 	Meta   map[string]string // Tag in discovery.instance.tag
 }
 
 func (e *Endpoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		Addr   string            `json:"addr"`
-		Weight int               `json:"weight"`
+		Weight uint32               `json:"weight"`
 		Meta   map[string]string `json:"meta,omitempty"`
 	}{
 		Addr:   e.Addr.String(),
@@ -36,14 +37,14 @@ func (e *Endpoint) Tag(key string) (value string, exist bool) {
 
 type Locality struct {
 	Endpoints []*Endpoint
-	Weight    int
+	Weight    uint32
 }
 
 type EndpointsResource struct {
 	Localities []*Locality
 }
 
-func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*EndpointsResource, error) {
+func parseClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*EndpointsResource, error) {
 	if cla == nil || len(cla.GetEndpoints()) == 0 {
 		return nil, nil
 	}
@@ -56,7 +57,7 @@ func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*E
 			eps[idx2] = &Endpoint{
 				Addr: utils.NewNetAddr("tcp",
 					net.JoinHostPort(addr.GetAddress(), strconv.Itoa(int(addr.GetPortValue())))),
-				Weight: int(weight.GetValue()),
+				Weight: weight.GetValue(),
 				Meta:   nil,
 			}
 			// TODO: add healthcheck
@@ -71,16 +72,25 @@ func unmarshalClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*E
 }
 
 func UnmarshalEDS(rawResources []*any.Any) (map[string]*EndpointsResource, error) {
-	ret := make(map[string]*EndpointsResource, len(rawResources))
+	if rawResources == nil {
+		return nil, fmt.Errorf("empty endpoint resource")
+	}
 
+	ret := make(map[string]*EndpointsResource, len(rawResources))
 	for _, r := range rawResources {
+		if r.GetTypeUrl() != EndpointTypeUrl {
+			klog.Errorf("invalid endpoint resource type: %s", r.GetTypeUrl())
+			continue
+		}
 		cla := &v3endpointpb.ClusterLoadAssignment{}
 		if err := proto.Unmarshal(r.GetValue(), cla); err != nil {
-			return nil, fmt.Errorf("unmarshal endpoint failed: %s", err)
+			klog.Errorf("unmarshal ClusterLoadAssignment failed, error=%s\n", err)
+			continue
 		}
-		endpoints, err := unmarshalClusterLoadAssignment(cla)
+		endpoints, err := parseClusterLoadAssignment(cla)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal ClusterLoadAssignment %s failed: %s", cla.GetClusterName(), err)
+			klog.Errorf("parse ClusterLoadAssignment %s failed: %s", cla.GetClusterName(), err)
+			continue
 		}
 		ret[cla.GetClusterName()] = endpoints
 	}

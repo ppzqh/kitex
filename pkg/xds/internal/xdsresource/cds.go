@@ -1,11 +1,12 @@
 package xdsresource
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
 	v3clusterpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
-	"strconv"
 )
 
 type ClusterDiscoveryType int
@@ -30,8 +31,28 @@ type ClusterResource struct {
 	InlineEndpoints *EndpointsResource
 }
 
+func (c *ClusterResource) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		DiscoveryType   string             `json:"discoveryType"`
+		LbPolicy        string             `json:"lbPolicy"`
+		EndpointName    string             `json:"endpointName"`
+		InlineEndpoints *EndpointsResource `json:"meta,omitempty"`
+	}{
+		DiscoveryType:   c.ClusterType(),
+		LbPolicy:        c.GetLbPolicy(),
+		EndpointName:    c.EndpointName,
+		InlineEndpoints: c.InlineEDS(),
+	})
+}
+
 func (r *ClusterResource) ClusterType() string {
-	return strconv.Itoa(int(r.DiscoveryType))
+	switch r.DiscoveryType {
+	case ClusterDiscoveryTypeEDS:
+		return "EDS"
+	case ClusterDiscoveryTypeLogicalDNS:
+		return "LOGICAL_DNS"
+	}
+	return "Static"
 }
 
 func (r *ClusterResource) GetLbPolicy() string {
@@ -48,26 +69,44 @@ func (r *ClusterResource) InlineEDS() *EndpointsResource {
 	return r.InlineEndpoints
 }
 
+func parseCluster(r *any.Any) (string, *ClusterResource, error) {
+	if r.GetTypeUrl() != ClusterTypeUrl {
+		return "", nil, fmt.Errorf("invalid cluster resource type: %s", r.GetTypeUrl())
+	}
+	c := &v3clusterpb.Cluster{}
+	if err := proto.Unmarshal(r.GetValue(), c); err != nil {
+		return "", nil, fmt.Errorf("unmarshal cluster failed: %s", err)
+	}
+	// TODO: circult breaker and outlier detection
+	ret := &ClusterResource{
+		DiscoveryType: convertDiscoveryType(c.GetType()),
+		LbPolicy:      convertLbPolicy(c.GetLbPolicy()),
+		EndpointName:  c.Name,
+	}
+	if n := c.GetEdsClusterConfig().GetServiceName(); n != "" {
+		ret.EndpointName = n
+	}
+	// inline eds
+	inlineEndpoints, err := parseClusterLoadAssignment(c.GetLoadAssignment())
+	if err != nil {
+		return c.Name, nil, err
+	}
+	ret.InlineEndpoints = inlineEndpoints
+	return c.Name, ret, nil
+}
+
 func UnmarshalCDS(rawResources []*any.Any) (map[string]*ClusterResource, error) {
+	if rawResources == nil {
+		return nil, fmt.Errorf("empty cluster resource")
+	}
 	ret := make(map[string]*ClusterResource, len(rawResources))
 	for _, r := range rawResources {
-		c := &v3clusterpb.Cluster{}
-		if err := proto.Unmarshal(r.GetValue(), c); err != nil {
-			return nil, fmt.Errorf("unmarshal cluster failed: %s", err)
-		}
-		// inline eds
-		inlineEndpoints, err := unmarshalClusterLoadAssignment(c.GetLoadAssignment())
+		name, res, err := parseCluster(r)
 		if err != nil {
-			return nil, err
+			klog.Errorf("unmarshal cluster failed, error=%s", err)
+			continue
 		}
-		// TODO: circult breaker and outlier detection
-		res := &ClusterResource{
-			DiscoveryType:   convertDiscoveryType(c.GetType()),
-			LbPolicy:        convertLbPolicy(c.GetLbPolicy()),
-			EndpointName:    c.GetEdsClusterConfig().GetServiceName(),
-			InlineEndpoints: inlineEndpoints,
-		}
-		ret[c.GetName()] = res
+		ret[name] = res
 	}
 
 	return ret, nil

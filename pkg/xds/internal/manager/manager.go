@@ -17,8 +17,7 @@ type xdsResourceManager struct {
 
 	// cache stores all the resources
 	cache map[xdsresource.ResourceType]map[string]xdsresource.Resource
-	// TODO: how to clean the cache? maybe add a ref count of each resource
-	//cacheRef map[xdsresource.ResourceType]map[string]int
+	meta  map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta
 
 	// updateChMap maintains the channel for notifying resource update
 	updateChMap map[xdsresource.ResourceType]map[string][]chan struct{}
@@ -47,27 +46,47 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	m.client = cli
 
 	m.dumpPath = "/tmp/"
+
+	// start the cache cleaner
+	go m.cleaner()
+
 	return m, nil
 }
 
 func newXdsResourceManager() *xdsResourceManager {
 	cache := make(map[xdsresource.ResourceType]map[string]xdsresource.Resource)
 	chMap := make(map[xdsresource.ResourceType]map[string][]chan struct{})
+	meta := make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta)
 	for rt := range xdsresource.ResourceTypeToUrl {
 		cache[rt] = make(map[string]xdsresource.Resource)
 		chMap[rt] = make(map[string][]chan struct{})
+		meta[rt] = make(map[string]*xdsresource.ResourceMeta)
 	}
 
 	return &xdsResourceManager{
 		cache:       cache,
 		updateChMap: chMap,
+		meta:        meta,
 	}
+}
+
+func (m *xdsResourceManager) getFromCache(resourceType xdsresource.ResourceType, resourceName string) (interface{}, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	res, ok := m.cache[resourceType][resourceName]
+	if ok {
+		// Record the timestamp
+		m.meta[resourceType][resourceName] = &xdsresource.ResourceMeta{Timestamp: time.Now()}
+	}
+	return res, ok
 }
 
 func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
 	// Get from cache
-	if r, ok := m.cache[resourceType][resourceName]; ok {
-		return r, nil
+	res, ok := m.getFromCache(resourceType, resourceName)
+	if ok {
+		return res, nil
 	}
 
 	// Fetch resource via client and wait for the update
@@ -95,15 +114,29 @@ func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.R
 			xdsresource.ResourceTypeToName[resourceType], resourceName, timeout)
 	}
 
-	m.mu.Lock()
-	res := m.cache[resourceType][resourceName]
-	m.mu.Unlock()
+	res, _ = m.getFromCache(resourceType, resourceName)
+	m.Dump()
 	return res, nil
 }
 
-func (m *xdsResourceManager) Subscribe(resourceType xdsresource.ResourceType, resourceName string) {
-	// subscribe this resource
-	m.client.Subscribe(resourceType, resourceName)
+func (m *xdsResourceManager) cleaner() {
+	maxIdleTime := time.Second * 30
+	t := time.NewTicker(maxIdleTime)
+
+	select {
+	case <-t.C:
+		m.mu.Lock()
+		for rt := range m.meta {
+			for resourceName, meta := range m.meta[rt] {
+				if time.Now().Sub(meta.Timestamp) > maxIdleTime {
+					delete(m.meta[rt], resourceName)
+					delete(m.cache[rt], resourceName)
+					m.client.Unsubscribe(rt, resourceName)
+				}
+			}
+		}
+		m.mu.Unlock()
+	}
 }
 
 func (m *xdsResourceManager) Dump() {

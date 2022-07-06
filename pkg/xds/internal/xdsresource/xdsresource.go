@@ -1,6 +1,13 @@
 package xdsresource
 
+import "time"
+
 type Resource interface{}
+
+type ResourceMeta struct {
+	Version   string
+	Timestamp time.Time
+}
 
 type ResourceType int
 
@@ -22,7 +29,7 @@ const (
 	SecretTypeUrl          = apiTypePrefix + "envoy.extensions.transport_sockets.tls.v3.Secret"
 	ExtensionConfigTypeUrl = apiTypePrefix + "envoy.config.core.v3.TypedExtensionConfig"
 	RuntimeTypeUrl         = apiTypePrefix + "envoy.service.runtime.v3.Runtime"
-
+	HTTPConnManagerTypeUrl = apiTypePrefix + "envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
 	// AnyType is used only by ADS
 	AnyType = ""
 )

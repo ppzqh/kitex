@@ -2,6 +2,7 @@ package xdsresource
 
 import (
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
 	v3routepb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
@@ -19,7 +20,7 @@ type VirtualHost struct {
 
 type weightedCluster struct {
 	Name   string
-	Weight int32
+	Weight uint32
 }
 
 type Route struct {
@@ -44,7 +45,8 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 		routeMatch := &RouteMatch{}
 		match := rs[i].GetMatch()
 		if match == nil {
-			return nil, fmt.Errorf("no match in route %s", rs[i].GetName())
+			klog.Errorf("no match in route %s\n", rs[i].GetName())
+			continue
 		}
 		pathSpecifier := match.GetPathSpecifier()
 		// only support exact match for path
@@ -58,7 +60,7 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 		// action
 		action := rs[i].GetAction()
 		if action == nil {
-			return nil, fmt.Errorf("no action in route %s", rs[i].GetName())
+			klog.Errorf("no action in route %s\n", rs[i].GetName())
 		}
 		switch a := action.(type) {
 		case *v3routepb.Route_Route:
@@ -73,7 +75,7 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 				for i, wc := range wcs.GetClusters() {
 					clusters[i] = &weightedCluster{
 						Name:   wc.GetName(),
-						Weight: int32(wc.GetWeight().GetValue()),
+						Weight: wc.GetWeight().GetValue(),
 					}
 				}
 				route.WeightedClusters = clusters
@@ -87,15 +89,13 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 
 func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) (*RouteConfigResource, error) {
 	vhs := routeConfig.GetVirtualHosts()
-	if len(vhs) == 0 {
-		return nil, fmt.Errorf("no virtual host in route config")
-	}
 	virtualHosts := make([]*VirtualHost, len(vhs))
 	for i := 0; i < len(vhs); i++ {
 		rs := vhs[i].GetRoutes()
 		routes, err := unmarshalRoutes(rs)
 		if err != nil {
-			return nil, fmt.Errorf("processing route in virtual host %s failed: %s", vhs[i].GetName(), err)
+			klog.Errorf("processing route in virtual host %s failed: %s\n", vhs[i].GetName(), err)
+			continue
 		}
 		virtualHost := &VirtualHost{
 			Name:   vhs[i].GetName(),
@@ -109,12 +109,20 @@ func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) (*RouteConf
 }
 
 func UnmarshalRDS(rawResources []*any.Any) (map[string]*RouteConfigResource, error) {
-	ret := make(map[string]*RouteConfigResource, len(rawResources))
+	if rawResources == nil {
+		return nil, fmt.Errorf("empty route config resource")
+	}
 
+	ret := make(map[string]*RouteConfigResource, len(rawResources))
 	for _, r := range rawResources {
+		if r.GetTypeUrl() != RouteTypeUrl {
+			klog.Errorf("invalid route config resource type: %s\n", r.GetTypeUrl())
+			continue
+		}
 		rcfg := &v3routepb.RouteConfiguration{}
 		if err := proto.Unmarshal(r.GetValue(), rcfg); err != nil {
-			return nil, fmt.Errorf("unmarshal failed: %s", err)
+			klog.Errorf("unmarshal failed: %s\n", err)
+			continue
 		}
 		res, err := unmarshalRouteConfig(rcfg)
 		if err != nil {

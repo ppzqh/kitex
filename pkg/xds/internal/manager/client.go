@@ -102,7 +102,6 @@ func (c *xdsClient) popRequestInfo() interface{} {
 func (c *xdsClient) Subscribe(resourceType xdsresource.ResourceType, resourceName string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	// New resource type
 	if r := c.subscribedResource[resourceType]; r == nil {
 		c.subscribedResource[resourceType] = make(map[string]bool)
@@ -126,16 +125,21 @@ func (c *xdsClient) Unsubscribe(resourceType xdsresource.ResourceType, resourceN
 
 // refresh all resources
 func (c *xdsClient) refresh() {
-	// TODO: start from cds, why?
 	ri := &requestInfo{resourceType: xdsresource.ListenerType, ack: false}
 	c.pushRequestInfo(ri)
 }
 
-func (c *xdsClient) run() {
+func (c *xdsClient) sender() {
 	timer := time.NewTicker(c.refreshInterval)
 
 	// sender
 	go func() {
+		defer func() {
+			if err := recover(); err == nil {
+				klog.Errorf("[XDS] client: run sender panic")
+			}
+		}()
+
 		for {
 			select {
 			case <-c.closeCh:
@@ -156,9 +160,17 @@ func (c *xdsClient) run() {
 			}
 		}
 	}()
+}
 
+func (c *xdsClient) receiver() {
 	// receiver
 	go func() {
+		defer func() {
+			if err := recover(); err == nil {
+				klog.Errorf("[XDS] client: run receiver panic")
+			}
+		}()
+
 		for {
 			select {
 			case <-c.closeCh:
@@ -172,10 +184,16 @@ func (c *xdsClient) run() {
 			}
 			err = c.handleResponse(resp)
 			if err != nil {
-				klog.Errorf("[XDS] client, handle response failed: %s", err)
+				klog.Errorf("[XDS] client, handle response failed, error: %s", err)
 			}
 		}
 	}()
+}
+
+func (c *xdsClient) run() {
+	// two goroutines for sender and receiver
+	c.sender()
+	c.receiver()
 }
 
 func (c *xdsClient) close() {
@@ -184,11 +202,11 @@ func (c *xdsClient) close() {
 }
 
 func (c *xdsClient) getStreamClient() (StreamClient, error) {
-	var sc StreamClient
 	c.streamClientLock.Lock()
 	defer c.streamClientLock.Unlock()
 
 	// get stream client
+	var sc StreamClient
 	sc = c.streamClient
 	if sc != nil {
 		return sc, nil
@@ -233,10 +251,6 @@ func (c *xdsClient) recv() (resp *v3discovery.DiscoveryResponse, err error) {
 }
 
 func (c *xdsClient) handleLDS(rawResources []*any.Any) error {
-	if rawResources == nil {
-		return fmt.Errorf("empty listener resource")
-	}
-
 	res, err := xdsresource.UnmarshalLDS(rawResources)
 	if err != nil {
 		return err
@@ -258,15 +272,11 @@ func (c *xdsClient) handleLDS(rawResources []*any.Any) error {
 }
 
 func (c *xdsClient) handleRDS(rawResources []*any.Any) error {
-	if rawResources == nil {
-		return fmt.Errorf("empty route config resource")
-	}
 	res, err := xdsresource.UnmarshalRDS(rawResources)
 	if err != nil {
 		return err
 	}
 	c.resourceUpdater.UpdateRouteConfigResource(res)
-
 	// prepare CDS request
 	c.mu.Lock()
 	for _, rcfg := range res {
@@ -286,10 +296,6 @@ func (c *xdsClient) handleRDS(rawResources []*any.Any) error {
 }
 
 func (c *xdsClient) handleCDS(rawResources []*any.Any) error {
-	if rawResources == nil {
-		return fmt.Errorf("empty cluster resource")
-	}
-
 	res, err := xdsresource.UnmarshalCDS(rawResources)
 	if err != nil {
 		return fmt.Errorf("handle cluster failed: %s", err)
@@ -313,9 +319,6 @@ func (c *xdsClient) handleCDS(rawResources []*any.Any) error {
 }
 
 func (c *xdsClient) handleEDS(rawResources []*any.Any) error {
-	if rawResources == nil {
-		return fmt.Errorf("empty endpoint resource")
-	}
 	res, err := xdsresource.UnmarshalEDS(rawResources)
 	if err != nil {
 		return fmt.Errorf("handle endpoint failed: %s", err)

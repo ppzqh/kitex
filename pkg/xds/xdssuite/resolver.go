@@ -31,7 +31,7 @@ func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Resul
 	}
 	instances := make([]discovery.Instance, len(eps))
 	for i, e := range eps {
-		instances[i] = discovery.NewInstance(e.Addr.Network(), e.Addr.String(), e.Weight, e.Meta)
+		instances[i] = discovery.NewInstance(e.Addr.Network(), e.Addr.String(), int(e.Weight), e.Meta)
 	}
 	res := discovery.Result{
 		Cacheable: false,

@@ -35,7 +35,7 @@ func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult
 	if matchedRoute == nil {
 		return nil, kerrors.ErrRoute
 	}
-
+	fmt.Println("timeout:", matchedRoute.Timeout)
 	cluster := selectCluster(matchedRoute)
 	if cluster == "" {
 		return nil, fmt.Errorf("no cluster selected")
@@ -52,8 +52,7 @@ func getRouteConfig(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route
 	if err != nil {
 		return nil, err
 	}
-	// TODO: confirm the listener name
-	listenerName := ri.From().ServiceName()
+	listenerName := ri.To().ServiceName()
 	lds, err := m.Get(ctx, xdsresource.ListenerType, listenerName)
 	if err != nil {
 		return nil, fmt.Errorf("get listener failed: %v", err)
@@ -105,12 +104,16 @@ func selectCluster(route *xdsresource.Route) string {
 		return ""
 	}
 
+	for _, wc := range wcs {
+		fmt.Println(wc.Name)
+	}
+
 	var cluster string
 	if len(wcs) == 1 {
 		cluster = wcs[0].Name
 	} else {
-		currWeight := int32(0)
-		targetWeight := rand.Int31n(defaultTotalWeight)
+		currWeight := uint32(0)
+		targetWeight := uint32(rand.Int31n(defaultTotalWeight))
 		for _, wc := range wcs {
 			currWeight += wc.Weight
 			if currWeight >= targetWeight {
