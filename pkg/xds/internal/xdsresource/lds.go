@@ -71,6 +71,7 @@ func UnmarshalLDS(rawResources []*any.Any) (map[string]*ListenerResource, error)
 			klog.Errorf("unmarshal Listener failed, error=%s\n", err)
 			continue
 		}
+		fmt.Printf("listener: %s \n\n", lis.String())
 		ret[lis.Name] = &ListenerResource{}
 		// http listener
 		if apiListener := lis.GetApiListener(); apiListener != nil {

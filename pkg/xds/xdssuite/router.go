@@ -7,7 +7,6 @@ import (
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"math/rand"
-	"strings"
 	"time"
 )
 
@@ -35,7 +34,6 @@ func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult
 	if matchedRoute == nil {
 		return nil, kerrors.ErrRoute
 	}
-	fmt.Println("timeout:", matchedRoute.Timeout)
 	cluster := selectCluster(matchedRoute)
 	if cluster == "" {
 		return nil, fmt.Errorf("no cluster selected")
@@ -80,8 +78,7 @@ func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource
 	toService := ri.To().ServiceName()
 	var matchedRoute *xdsresource.Route
 	for _, vh := range routeConfig.VirtualHosts {
-		// TODO: match the name
-		if !strings.Contains(vh.Name, toService) {
+		if vh.Name != toService {
 			continue
 		}
 		// match the first route
@@ -103,11 +100,6 @@ func selectCluster(route *xdsresource.Route) string {
 	if len(wcs) == 0 {
 		return ""
 	}
-
-	for _, wc := range wcs {
-		fmt.Println(wc.Name)
-	}
-
 	var cluster string
 	if len(wcs) == 1 {
 		cluster = wcs[0].Name

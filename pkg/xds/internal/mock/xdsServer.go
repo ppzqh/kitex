@@ -5,6 +5,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/service"
 	"github.com/cloudwego/kitex/server"
 	"net"
+	"time"
 )
 
 type Server struct {
@@ -20,11 +21,7 @@ func StartServer(address string) {
 	go func() {
 		errCh <- svr.Run()
 	}()
-	//select {
-	//case err := <-errCh:
-	//	fmt.Printf("xds server error: %v\n", err)
-	//	return
-	//}
+	time.Sleep(time.Second)
 }
 
 type xdsServer struct {

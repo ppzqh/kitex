@@ -279,12 +279,15 @@ func (c *xdsClient) handleRDS(rawResources []*any.Any) error {
 	c.resourceUpdater.UpdateRouteConfigResource(res)
 	// prepare CDS request
 	c.mu.Lock()
-	for _, rcfg := range res {
-		// subscribe CDS
-		for _, vh := range rcfg.VirtualHosts {
-			for _, r := range vh.Routes {
-				for _, wc := range r.WeightedClusters {
-					c.subscribedResource[xdsresource.ClusterType][wc.Name] = true
+	for rn, rcfg := range res {
+		// only accept the routeConfig that is subscribed
+		if _, ok := c.subscribedResource[xdsresource.RouteConfigType][rn]; ok {
+			// subscribe CDS
+			for _, vh := range rcfg.VirtualHosts {
+				for _, r := range vh.Routes {
+					for _, wc := range r.WeightedClusters {
+						c.subscribedResource[xdsresource.ClusterType][wc.Name] = true
+					}
 				}
 			}
 		}
@@ -331,9 +334,9 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	// check the type of response
 	resp, ok := msg.(*v3discovery.DiscoveryResponse)
 	if !ok {
-		return fmt.Errorf("incorrect response")
+		return fmt.Errorf("invalid discovery response")
 	}
-
+	// get version and nonce
 	version := resp.GetVersionInfo()
 	nonce := resp.GetNonce()
 	url := resp.GetTypeUrl()
@@ -341,7 +344,9 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	if !ok {
 		return fmt.Errorf("unknown type of resource, url: %s", url)
 	}
+
 	// update nonce and version
+	// TODO: update if the handle function doesn't return error, or NACK should be sent
 	c.mu.Lock()
 	c.nonceMap[rsrcType] = nonce
 	c.versionMap[rsrcType] = version
@@ -360,7 +365,7 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	case xdsresource.EndpointsType:
 		err = c.handleEDS(resp.GetResources())
 	}
-	// ack
+	// ACK/NACK
 	c.ack(rsrcType, err)
 	return err
 }

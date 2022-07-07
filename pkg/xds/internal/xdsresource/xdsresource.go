@@ -49,8 +49,8 @@ var ResourceUrlToType = map[string]ResourceType{
 }
 
 var ResourceTypeToName = map[ResourceType]string{
-	ListenerType:    "listener",
-	RouteConfigType: "route",
-	ClusterType:     "cluster",
-	EndpointsType:   "endpoint",
+	ListenerType:    "Listener",
+	RouteConfigType: "RouteConfig",
+	ClusterType:     "Cluster",
+	EndpointsType:   "ClusterLoadAssignment",
 }

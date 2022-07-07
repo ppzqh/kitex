@@ -120,7 +120,7 @@ func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.R
 }
 
 func (m *xdsResourceManager) cleaner() {
-	maxIdleTime := time.Second * 30
+	maxIdleTime := time.Second * 5
 	t := time.NewTicker(maxIdleTime)
 
 	select {
@@ -140,21 +140,22 @@ func (m *xdsResourceManager) cleaner() {
 }
 
 func (m *xdsResourceManager) Dump() {
-	for t := range xdsresource.ResourceTypeToName {
-		m.DumpOne(t)
-	}
-}
-
-func (m *xdsResourceManager) DumpOne(resourceType xdsresource.ResourceType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	res := m.cache[resourceType]
-	data, err := json.MarshalIndent(res, "", "    ")
-	if err != nil {
-		panic(err)
+	dumpResource := make(map[string]interface{})
+	for t, n := range xdsresource.ResourceTypeToName {
+		res := m.cache[t]
+		// TODO: record version in manager
+		res["version"] = m.client.versionMap[t]
+		dumpResource[n] = res
 	}
-	path := m.dumpPath + xdsresource.ResourceTypeToName[resourceType] + ".json"
+
+	path := m.dumpPath + "xds_resource.json"
+	data, err := json.MarshalIndent(dumpResource, "", "    ")
+	if err != nil {
+		klog.Warnf("[XDS] marshal xds resource failed when dumping, error=%s", err)
+	}
 	if err := ioutil.WriteFile(path, data, 0o644); err != nil {
 		klog.Warnf("dump xds resource failed\n")
 	}
