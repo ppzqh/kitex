@@ -23,7 +23,7 @@ type xdsResourceManager struct {
 	updateChMap map[xdsresource.ResourceType]map[string][]chan struct{}
 	mu          sync.Mutex
 
-	// TODO: refactor the dump logic
+	// TODO: add dump handler?
 	dumpPath string
 }
 
@@ -45,7 +45,7 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	}
 	m.client = cli
 
-	m.dumpPath = "/tmp/"
+	m.dumpPath = defaultDumpPath
 
 	// start the cache cleaner
 	go m.cleaner()
@@ -77,12 +77,21 @@ func (m *xdsResourceManager) getFromCache(resourceType xdsresource.ResourceType,
 	res, ok := m.cache[resourceType][resourceName]
 	if ok {
 		// Record the timestamp
-		m.meta[resourceType][resourceName] = &xdsresource.ResourceMeta{Timestamp: time.Now()}
+		if _, ok := m.meta[resourceType][resourceName]; ok {
+			m.meta[resourceType][resourceName].LastAccessTime = time.Now()
+		} else {
+			m.meta[resourceType][resourceName] = &xdsresource.ResourceMeta{
+				LastAccessTime: time.Now(),
+			}
+		}
 	}
 	return res, ok
 }
 
 func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
+	if _, ok := xdsresource.ResourceTypeToUrl[resourceType]; !ok {
+		return nil, fmt.Errorf("[XDS ResourceManager] invalid resource type: %d", resourceType)
+	}
 	// Get from cache
 	res, ok := m.getFromCache(resourceType, resourceName)
 	if ok {
@@ -115,20 +124,18 @@ func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.R
 	}
 
 	res, _ = m.getFromCache(resourceType, resourceName)
-	m.Dump()
 	return res, nil
 }
 
 func (m *xdsResourceManager) cleaner() {
-	maxIdleTime := time.Second * 5
-	t := time.NewTicker(maxIdleTime)
+	t := time.NewTicker(defaultCacheExpireTime)
 
 	select {
 	case <-t.C:
 		m.mu.Lock()
 		for rt := range m.meta {
 			for resourceName, meta := range m.meta[rt] {
-				if time.Now().Sub(meta.Timestamp) > maxIdleTime {
+				if time.Now().Sub(meta.LastAccessTime) > defaultCacheExpireTime {
 					delete(m.meta[rt], resourceName)
 					delete(m.cache[rt], resourceName)
 					m.client.Unsubscribe(rt, resourceName)
@@ -151,7 +158,7 @@ func (m *xdsResourceManager) Dump() {
 		dumpResource[n] = res
 	}
 
-	path := m.dumpPath + "xds_resource.json"
+	path := m.dumpPath
 	data, err := json.MarshalIndent(dumpResource, "", "    ")
 	if err != nil {
 		klog.Warnf("[XDS] marshal xds resource failed when dumping, error=%s", err)
@@ -167,12 +174,32 @@ func (m *xdsResourceManager) Close() {
 }
 
 type ResourceUpdater interface {
+	//UpdateResourceCache(map[string]xdsresource.Resource, xdsresource.ResourceType)
 	UpdateListenerResource(map[string]*xdsresource.ListenerResource)
 	UpdateRouteConfigResource(map[string]*xdsresource.RouteConfigResource)
 	UpdateClusterResource(map[string]*xdsresource.ClusterResource)
 	UpdateEndpointsResource(map[string]*xdsresource.EndpointsResource)
 }
 
+//func (m *xdsResourceManager) UpdateResourceCache(up map[string]xdsresource.Resource, resourceType xdsresource.ResourceType) {
+//	m.mu.Lock()
+//	defer m.mu.Unlock()
+//
+//	for name, res := range up {
+//		// TODO: validate
+//		m.cache[resourceType][name] = res
+//		if chs, exist := m.updateChMap[resourceType][name]; exist {
+//			for _, ch := range chs {
+//				if ch != nil {
+//					close(ch)
+//				}
+//			}
+//			m.updateChMap[resourceType][name] = m.updateChMap[resourceType][name][0:0]
+//		}
+//	}
+//}
+
+//func
 func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.ListenerResource) {
 	m.mu.Lock()
 	inlineRDS := make(map[string]*xdsresource.RouteConfigResource)

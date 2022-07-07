@@ -3,7 +3,7 @@ package xdsresource
 import (
 	v3 "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	v3endpointpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	"github.com/cloudwego/kitex/pkg/xds/internal/utils"
+	"github.com/cloudwego/kitex/pkg/xds/internal/testutil"
 	"github.com/cloudwego/thriftgo/pkg/test"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -54,7 +54,7 @@ func TestUnmarshalEDSSuccess(t *testing.T) {
 	port1, port2 := 8080, 8081
 	weight1, weight2 := 50, 50
 	rawResources := []*any.Any{
-		utils.MarshalAny(&v3endpointpb.ClusterLoadAssignment{
+		testutil.MarshalAny(&v3endpointpb.ClusterLoadAssignment{
 			ClusterName: claName,
 			Endpoints:   []*v3endpointpb.LocalityLbEndpoints{
 				{

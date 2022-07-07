@@ -5,8 +5,9 @@ import "time"
 type Resource interface{}
 
 type ResourceMeta struct {
-	Version   string
-	Timestamp time.Time
+	Version        string
+	LastAccessTime time.Time
+	UpdateTime     time.Time
 }
 
 type ResourceType int

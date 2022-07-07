@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	envoy_config_core_v3 "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	v3core "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"github.com/golang/protobuf/jsonpb"
 	"io/ioutil"
 	"os"
@@ -12,12 +12,12 @@ import (
 )
 
 type BootstrapConfig struct {
-	node      *envoy_config_core_v3.Node
-	xdsSvrCfg *XDSServerConfig
+	Node      *v3core.Node
+	XdsSvrCfg *XDSServerConfig
 }
 
 type XDSServerConfig struct {
-	serverAddress string
+	ServerAddress string
 }
 
 type xdsServer struct {
@@ -37,7 +37,7 @@ func (sc *XDSServerConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &server); err != nil {
 		return fmt.Errorf("[XDS Bootstrap] Unmarshal field ServerConfig failed during bootstrap: %v", err)
 	}
-	sc.serverAddress = server.ServerURI
+	sc.ServerAddress = server.ServerURI
 	return nil
 }
 
@@ -54,9 +54,9 @@ func newBootstrapConfig() (*BootstrapConfig, error) {
 }
 
 func processServerAddress(bcfg *BootstrapConfig) {
-	svrAddr := bcfg.xdsSvrCfg.serverAddress
+	svrAddr := bcfg.XdsSvrCfg.ServerAddress
 	svrAddr = strings.TrimLeft(svrAddr, "unix:")
-	bcfg.xdsSvrCfg.serverAddress = svrAddr
+	bcfg.XdsSvrCfg.ServerAddress = svrAddr
 }
 
 // TODO: function is copied from grpc?
@@ -76,17 +76,17 @@ func readBootstrap(fileName string) (*BootstrapConfig, error) {
 	for k, v := range jsonData {
 		switch k {
 		case "node":
-			node := &envoy_config_core_v3.Node{}
+			node := &v3core.Node{}
 			if err := m.Unmarshal(bytes.NewReader(v), node); err != nil {
 				return nil, fmt.Errorf("[XDS Bootstrap] unmarshal node failed: %v", err)
 			}
-			bootstrapConfig.node = node
+			bootstrapConfig.Node = node
 		case "xds_servers":
 			servers, err := unmarshalJSONServerConfigSlice(v)
 			if err != nil {
 				return nil, fmt.Errorf("[XDS Bootstrap] unmarshal xds_server failed: %v", err)
 			}
-			bootstrapConfig.xdsSvrCfg = servers[0]
+			bootstrapConfig.XdsSvrCfg = servers[0]
 		}
 	}
 	return bootstrapConfig, nil

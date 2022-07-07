@@ -3,7 +3,7 @@ package xdsresource
 import (
 	"github.com/cloudwego/kitex/internal/test"
 	v3clusterpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	"github.com/cloudwego/kitex/pkg/xds/internal/utils"
+	"github.com/cloudwego/kitex/pkg/xds/internal/testutil"
 	"github.com/golang/protobuf/ptypes/any"
 	"reflect"
 	"testing"
@@ -49,7 +49,7 @@ func TestUnmarshalCDSSuccess(t *testing.T) {
 	clusterName := "test"
 	edsName := "test_eds"
 	rawResources := []*any.Any{
-		utils.MarshalAny(&v3clusterpb.Cluster{
+		testutil.MarshalAny(&v3clusterpb.Cluster{
 			Name:                 "test",
 			ClusterDiscoveryType: &v3clusterpb.Cluster_Type{Type: v3clusterpb.Cluster_EDS},
 			EdsClusterConfig: &v3clusterpb.Cluster_EdsClusterConfig{

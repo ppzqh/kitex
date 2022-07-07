@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	RouterClusterKey         = "route_cluster_picked"
+	RouterClusterKey         = "XDS_Route_Picked_Cluster"
 	defaultTotalWeight int32 = 100
 )
 

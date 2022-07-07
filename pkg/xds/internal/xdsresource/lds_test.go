@@ -4,7 +4,7 @@ import (
 	"github.com/cloudwego/kitex/internal/test"
 	v3listenerpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	v3httppb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
-	"github.com/cloudwego/kitex/pkg/xds/internal/utils"
+	"github.com/cloudwego/kitex/pkg/xds/internal/testutil"
 	"github.com/golang/protobuf/ptypes/any"
 	"reflect"
 	"testing"
@@ -50,10 +50,10 @@ func TestUnmarshalLDSSuccess(t *testing.T) {
 	listenerName := "listener"
 	routeConfigName := "route_config"
 	rawResources := []*any.Any{
-		utils.MarshalAny(&v3listenerpb.Listener{
+		testutil.MarshalAny(&v3listenerpb.Listener{
 			Name: listenerName,
 			ApiListener: &v3listenerpb.ApiListener{
-				ApiListener: utils.MarshalAny(
+				ApiListener: testutil.MarshalAny(
 					&v3httppb.HttpConnectionManager{
 						RouteSpecifier: &v3httppb.HttpConnectionManager_Rds{
 							Rds: &v3httppb.Rds{
