@@ -106,6 +106,66 @@ func TestUnmarshalRDSSuccess(t *testing.T) {
 	wcs := vh.Routes[0].WeightedClusters
 	test.Assert(t, wcs != nil)
 	test.Assert(t, len(wcs) == 2)
-	test.Assert(t, wcs[0].Weight == 50)
-	test.Assert(t, wcs[1].Weight == 50)
+	test.Assert(t, wcs[0].Weight() == 50)
+	test.Assert(t, wcs[1].Weight() == 50)
+}
+
+func TestRouteMatch_Matched(t *testing.T) {
+	type fields struct {
+		Path          string
+	}
+	type args struct {
+		path string
+		tags map[string]string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   bool
+	}{
+		{
+			name:   "matched empty route path",
+			fields: fields{
+				Path: "",
+			},
+			args:   args{
+				path: "p1",
+				tags: map[string]string{},
+			},
+			want:   true,
+		},
+		{
+			name:   "matched route path",
+			fields: fields{
+				Path: "p1",
+			},
+			args:   args{
+				path: "p1",
+				tags: map[string]string{},
+			},
+			want:   true,
+		},
+		{
+			name:   "not matched",
+			fields: fields{
+				Path: "p2",
+			},
+			args:   args{
+				path: "p1",
+				tags: map[string]string{},
+			},
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rm := &RouteMatch{
+				Path:          tt.fields.Path,
+			}
+			if got := rm.Matched(tt.args.path, tt.args.tags); got != tt.want {
+				t.Errorf("Matched() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

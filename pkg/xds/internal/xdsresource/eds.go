@@ -13,31 +13,43 @@ import (
 )
 
 type Endpoint struct {
-	Addr   net.Addr
-	Weight uint32
-	Meta   map[string]string // Tag in discovery.instance.tag
+	addr   net.Addr
+	weight uint32
+	meta   map[string]string // Tag in discovery.instance.tag
+}
+
+func (e *Endpoint) Addr() net.Addr {
+	return e.addr
+}
+
+func (e *Endpoint) Weight() uint32 {
+	return e.weight
+}
+
+func (e *Endpoint) Meta() map[string]string {
+	return e.meta
 }
 
 func (e *Endpoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		Addr   string            `json:"addr"`
-		Weight uint32               `json:"weight"`
+		Weight uint32            `json:"weight"`
 		Meta   map[string]string `json:"meta,omitempty"`
 	}{
-		Addr:   e.Addr.String(),
-		Weight: e.Weight,
-		Meta:   e.Meta,
+		Addr:   e.addr.String(),
+		Weight: e.weight,
+		Meta:   e.meta,
 	})
 }
 
 func (e *Endpoint) Tag(key string) (value string, exist bool) {
-	value, exist = e.Meta[key]
+	value, exist = e.meta[key]
 	return
 }
 
 type Locality struct {
 	Endpoints []*Endpoint
-	Weight    uint32
+	// TODO: do not support locality priority yet
 }
 
 type EndpointsResource struct {
@@ -55,10 +67,10 @@ func parseClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*Endpo
 			addr := ep.GetEndpoint().GetAddress().GetSocketAddress()
 			weight := ep.GetLoadBalancingWeight()
 			eps[idx2] = &Endpoint{
-				Addr: utils.NewNetAddr("tcp",
+				addr: utils.NewNetAddr("tcp",
 					net.JoinHostPort(addr.GetAddress(), strconv.Itoa(int(addr.GetPortValue())))),
-				Weight: weight.GetValue(),
-				Meta:   nil,
+				weight: weight.GetValue(),
+				meta:   nil,
 			}
 			// TODO: add healthcheck
 		}

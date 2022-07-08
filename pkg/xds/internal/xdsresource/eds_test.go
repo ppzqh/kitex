@@ -112,10 +112,10 @@ func TestUnmarshalEDSSuccess(t *testing.T) {
 	test.Assert(t, len(cla.Localities) == 1)
 	test.Assert(t, len(cla.Localities[0].Endpoints) == 2)
 	e1 := cla.Localities[0].Endpoints[0]
-	test.Assert(t, e1.Weight == 50)
-	test.Assert(t, e1.Addr.String() == addr+":"+strconv.Itoa(port1))
+	test.Assert(t, e1.Weight() == 50)
+	test.Assert(t, e1.Addr().String() == addr+":"+strconv.Itoa(port1))
 	e2 := cla.Localities[0].Endpoints[1]
-	test.Assert(t, e2.Weight == 50)
-	test.Assert(t, e2.Addr.String() == addr+":"+strconv.Itoa(port2))
+	test.Assert(t, e2.Weight() == 50)
+	test.Assert(t, e2.Addr().String() == addr+":"+strconv.Itoa(port2))
 }
 

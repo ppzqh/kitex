@@ -17,6 +17,7 @@ type XDSResolver struct {
 // Target should return a description for the given target that is suitable for being a key for cache.
 func (r *XDSResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (description string) {
 	dest, ok := target.Tag(RouterClusterKey)
+	// TODO: if no cluster is specified, the discovery will fail
 	if !ok {
 		return target.ServiceName()
 	}
@@ -31,7 +32,7 @@ func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Resul
 	}
 	instances := make([]discovery.Instance, len(eps))
 	for i, e := range eps {
-		instances[i] = discovery.NewInstance(e.Addr.Network(), e.Addr.String(), int(e.Weight), e.Meta)
+		instances[i] = discovery.NewInstance(e.Addr().Network(), e.Addr().String(), int(e.Weight()), e.Meta())
 	}
 	res := discovery.Result{
 		Cacheable: false,

@@ -100,19 +100,18 @@ func selectCluster(route *xdsresource.Route) string {
 	if len(wcs) == 0 {
 		return ""
 	}
-	var cluster string
 	if len(wcs) == 1 {
-		cluster = wcs[0].Name
-	} else {
-		currWeight := uint32(0)
-		targetWeight := uint32(rand.Int31n(defaultTotalWeight))
-		for _, wc := range wcs {
-			currWeight += wc.Weight
-			if currWeight >= targetWeight {
-				cluster = wc.Name
-				break
-			}
+		return wcs[0].Name()
+	}
+	currWeight := uint32(0)
+	targetWeight := uint32(rand.Int31n(defaultTotalWeight))
+	for _, wc := range wcs {
+		currWeight += wc.Weight()
+		if currWeight >= targetWeight {
+			return wc.Name()
+			break
 		}
 	}
-	return cluster
+	// total weight is less than target weight
+	return ""
 }

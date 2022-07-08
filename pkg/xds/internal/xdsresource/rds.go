@@ -19,8 +19,16 @@ type VirtualHost struct {
 }
 
 type weightedCluster struct {
-	Name   string
-	Weight uint32
+	name   string
+	weight uint32
+}
+
+func (wc *weightedCluster) Name() string {
+	return wc.name
+}
+
+func (wc *weightedCluster) Weight() uint32 {
+	return wc.weight
 }
 
 type Route struct {
@@ -31,7 +39,6 @@ type Route struct {
 
 type RouteMatch struct {
 	Path          string
-	CaseSensitive bool
 }
 
 func (rm *RouteMatch) Matched(path string, tags map[string]string) bool {
@@ -67,15 +74,15 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 			switch cs := a.Route.GetClusterSpecifier().(type) {
 			case *v3routepb.RouteAction_Cluster:
 				route.WeightedClusters = []*weightedCluster{
-					{Name: cs.Cluster, Weight: 1},
+					{name: cs.Cluster, weight: 1},
 				}
 			case *v3routepb.RouteAction_WeightedClusters:
 				wcs := cs.WeightedClusters
 				clusters := make([]*weightedCluster, len(wcs.Clusters))
 				for i, wc := range wcs.GetClusters() {
 					clusters[i] = &weightedCluster{
-						Name:   wc.GetName(),
-						Weight: wc.GetWeight().GetValue(),
+						name:   wc.GetName(),
+						weight: wc.GetWeight().GetValue(),
 					}
 				}
 				route.WeightedClusters = clusters

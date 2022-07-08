@@ -122,7 +122,7 @@ func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.R
 		return nil, fmt.Errorf("[XDS] client, fetch %s resource[%s] failed, timeout %s",
 			xdsresource.ResourceTypeToName[resourceType], resourceName, timeout)
 	}
-
+	m.Dump()
 	res, _ = m.getFromCache(resourceType, resourceName)
 	return res, nil
 }
