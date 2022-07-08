@@ -36,7 +36,7 @@ func unmarshallApiListener(apiListener *v3listenerpb.ApiListener) (*ListenerReso
 			return nil, fmt.Errorf("no Rds in the apiListener")
 		}
 		if apiLis.GetRds().GetRouteConfigName() == "" {
-			return nil, fmt.Errorf("no route config name")
+			return nil, fmt.Errorf("no route config Name")
 		}
 		res = &ListenerResource{RouteConfigName: apiLis.GetRds().GetRouteConfigName()}
 	case *v3httppb.HttpConnectionManager_RouteConfig:

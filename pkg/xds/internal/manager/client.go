@@ -269,7 +269,7 @@ func (c *xdsClient) handleRDS(resp *v3discovery.DiscoveryResponse) error {
 					if _, ok := c.subscribedResource[xdsresource.ClusterType]; !ok {
 						c.subscribedResource[xdsresource.ClusterType] = make(map[string]bool)
 					}
-					c.subscribedResource[xdsresource.ClusterType][wc.Name()] = true
+					c.subscribedResource[xdsresource.ClusterType][wc.Name] = true
 				}
 			}
 		}

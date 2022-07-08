@@ -106,13 +106,14 @@ func TestUnmarshalRDSSuccess(t *testing.T) {
 	wcs := vh.Routes[0].WeightedClusters
 	test.Assert(t, wcs != nil)
 	test.Assert(t, len(wcs) == 2)
-	test.Assert(t, wcs[0].Weight() == 50)
-	test.Assert(t, wcs[1].Weight() == 50)
+	test.Assert(t, wcs[0].Weight == 50)
+	test.Assert(t, wcs[1].Weight == 50)
 }
 
 func TestRouteMatch_Matched(t *testing.T) {
 	type fields struct {
 		Path          string
+		Prefix		string
 	}
 	type args struct {
 		path string
@@ -125,15 +126,28 @@ func TestRouteMatch_Matched(t *testing.T) {
 		want   bool
 	}{
 		{
-			name:   "matched empty route path",
+			name:   "empty route, empty input path",
 			fields: fields{
 				Path: "",
+				Prefix: "/",
+			},
+			args:   args{
+				path: "",
+				tags: map[string]string{},
+			},
+			want:   false,
+		},
+		{
+			name:   "empty route, non-empty input path",
+			fields: fields{
+				Path: "",
+				Prefix: "/",
 			},
 			args:   args{
 				path: "p1",
 				tags: map[string]string{},
 			},
-			want:   true,
+			want:   false,
 		},
 		{
 			name:   "matched route path",

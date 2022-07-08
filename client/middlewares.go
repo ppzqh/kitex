@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/xds/xdssuite"
 	"time"
 
@@ -86,6 +87,7 @@ func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 				}
 				res, err := router.Route(ctx, ri)
 				if err != nil {
+					klog.Error("[xds] route error: %s", err)
 					return err
 				}
 				// set destination
