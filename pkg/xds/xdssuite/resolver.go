@@ -57,7 +57,7 @@ func getEndpoints(ctx context.Context, desc string) ([]*xdsresource.Endpoint, er
 	if !ok {
 		return nil, fmt.Errorf("wrong endpoint resource for cluster: %s", desc)
 	}
-	if len(cla.Localities) == 0 {
+	if cla == nil || len(cla.Localities) == 0 {
 		return nil, fmt.Errorf("no endpoints for cluster: %s", desc)
 	}
 	// TODO: filter localities

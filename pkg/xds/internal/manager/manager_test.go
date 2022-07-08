@@ -119,3 +119,29 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 		})
 	}
 }
+
+func Test_xdsResourceManager_getFromCache(t *testing.T) {
+	m := &xdsResourceManager{
+		cache: map[xdsresource.ResourceType]map[string]xdsresource.Resource{
+			xdsresource.ListenerType: {
+				resource.ListenerName: resource.Listener1,
+			},
+		},
+		meta: map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta{
+			xdsresource.ListenerType: {
+			},
+		},
+	}
+
+	// succeed
+	res, ok := m.getFromCache(xdsresource.ListenerType, resource.ListenerName)
+	test.Assert(t, ok == true)
+	test.Assert(t, res == resource.Listener1)
+	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName] != nil)
+
+	// failed
+	res, ok = m.getFromCache(xdsresource.ListenerType, "randomListener")
+	test.Assert(t, ok == false)
+	res, ok = m.getFromCache(xdsresource.ClusterType, "randomCluster")
+	test.Assert(t, ok == false)
+}

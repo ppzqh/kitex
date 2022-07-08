@@ -77,6 +77,9 @@ func (m *xdsResourceManager) getFromCache(resourceType xdsresource.ResourceType,
 	res, ok := m.cache[resourceType][resourceName]
 	if ok {
 		// Record the timestamp
+		if _, ok := m.meta[resourceType]; !ok {
+			m.meta[resourceType] = make(map[string]*xdsresource.ResourceMeta)
+		}
 		if _, ok := m.meta[resourceType][resourceName]; ok {
 			m.meta[resourceType][resourceName].LastAccessTime = time.Now()
 		} else {
@@ -84,8 +87,10 @@ func (m *xdsResourceManager) getFromCache(resourceType xdsresource.ResourceType,
 				LastAccessTime: time.Now(),
 			}
 		}
+		return res, ok
 	}
-	return res, ok
+
+	return nil, false
 }
 
 func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
