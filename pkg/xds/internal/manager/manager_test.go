@@ -8,6 +8,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/xds/internal/testutil/resource"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"testing"
+	"time"
 )
 
 // for test use
@@ -62,7 +63,7 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			args:    args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.ListenerType,
-				resourceName: resource.ListenerName,
+				resourceName: resource.ListenerName1,
 			},
 			want:    nil,
 			wantErr: false,
@@ -72,7 +73,7 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			args:    args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.RouteConfigType,
-				resourceName: resource.RouteConfigName,
+				resourceName: resource.RouteConfigName1,
 			},
 			want:    nil,
 			wantErr: false,
@@ -98,10 +99,40 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "GetFailed",
+			name:    "ListenerNotExist",
 			args:    args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.ListenerType,
+				resourceName: "random",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "RouteConfigNotExist",
+			args:    args{
+				ctx:          context.Background(),
+				resourceType: xdsresource.RouteConfigType,
+				resourceName: "random",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "ClusterNotExist",
+			args:    args{
+				ctx:          context.Background(),
+				resourceType: xdsresource.ClusterType,
+				resourceName: "random",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "EndpointsNotExist",
+			args:    args{
+				ctx:          context.Background(),
+				resourceType: xdsresource.EndpointsType,
 				resourceName: "random",
 			},
 			want:    nil,
@@ -120,11 +151,47 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 	}
 }
 
+func Test_xdsResourceManager_Get_Resource_Update(t *testing.T) {
+	// Init
+	svr := mock.StartXDSServer(XdsSercerAddress)
+	defer func() {
+		if svr != nil {
+			_ = svr.Stop()
+		}
+	}()
+	m, initErr := NewXDSResourceManager(XdsBootstrapConfig)
+	test.Assert(t, initErr == nil)
+
+	var res xdsresource.Resource
+	var err error
+	// GetListener
+	res, err = m.Get(context.Background(), xdsresource.ListenerType, resource.ListenerName1)
+	test.Assert(t, err == nil)
+	test.Assert(t, res != nil)
+	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName1] != nil)
+	test.Assert(t, res.(*xdsresource.ListenerResource).RouteConfigName == resource.RouteConfigName1)
+	// push the new resource and check if the resourceManager can update the resource
+	svr.PushResourceUpdate(resource.LdsResp2)
+	time.Sleep(time.Millisecond*100)
+	res, err = m.Get(context.Background(), xdsresource.ListenerType, resource.ListenerName1)
+	test.Assert(t, err != nil)
+
+	// GetRouteConfig
+	res, err = m.Get(context.Background(), xdsresource.RouteConfigType, resource.RouteConfigName1)
+	test.Assert(t, err == nil)
+	test.Assert(t, res != nil)
+	// push the new resource and check if the resourceManager can update the resource
+	svr.PushResourceUpdate(resource.RdsResp2)
+	time.Sleep(time.Millisecond*100)
+	res, err = m.Get(context.Background(), xdsresource.RouteConfigType, resource.RouteConfigName1)
+	test.Assert(t, err != nil)
+}
+
 func Test_xdsResourceManager_getFromCache(t *testing.T) {
 	m := &xdsResourceManager{
 		cache: map[xdsresource.ResourceType]map[string]xdsresource.Resource{
 			xdsresource.ListenerType: {
-				resource.ListenerName: resource.Listener1,
+				resource.ListenerName1: resource.Listener1,
 			},
 		},
 		meta: map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta{
@@ -134,10 +201,10 @@ func Test_xdsResourceManager_getFromCache(t *testing.T) {
 	}
 
 	// succeed
-	res, ok := m.getFromCache(xdsresource.ListenerType, resource.ListenerName)
+	res, ok := m.getFromCache(xdsresource.ListenerType, resource.ListenerName1)
 	test.Assert(t, ok == true)
 	test.Assert(t, res == resource.Listener1)
-	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName] != nil)
+	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName1] != nil)
 
 	// failed
 	res, ok = m.getFromCache(xdsresource.ListenerType, "randomListener")

@@ -3,7 +3,6 @@ package xdsresource
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cloudwego/kitex/pkg/klog"
 	v3clusterpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
@@ -96,20 +95,26 @@ func parseCluster(r *any.Any) (string, *ClusterResource, error) {
 }
 
 func UnmarshalCDS(rawResources []*any.Any) (map[string]*ClusterResource, error) {
-	if rawResources == nil {
-		return nil, fmt.Errorf("empty cluster resource")
-	}
 	ret := make(map[string]*ClusterResource, len(rawResources))
+	errMap := make(map[string]error)
+	var errSlice []error
 	for _, r := range rawResources {
 		name, res, err := parseCluster(r)
 		if err != nil {
-			klog.Errorf("unmarshal cluster failed, error=%s", err)
+			if name == "" {
+				errSlice = append(errSlice, err)
+				continue
+			}
+			errMap[name] = err
 			continue
+			//klog.Errorf("unmarshal cluster failed, error=%s", err)
 		}
 		ret[name] = res
 	}
-
-	return ret, nil
+	if len(errMap) == 0  && len(errSlice) == 0 {
+		return ret, nil
+	}
+	return ret, processUnmarshalErrors(errSlice, errMap)
 }
 
 func convertDiscoveryType(t v3clusterpb.Cluster_DiscoveryType) ClusterDiscoveryType {

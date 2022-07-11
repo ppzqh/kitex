@@ -3,7 +3,6 @@ package xdsresource
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/utils"
 	v3endpointpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -84,27 +83,30 @@ func parseClusterLoadAssignment(cla *v3endpointpb.ClusterLoadAssignment) (*Endpo
 }
 
 func UnmarshalEDS(rawResources []*any.Any) (map[string]*EndpointsResource, error) {
-	if rawResources == nil {
-		return nil, fmt.Errorf("empty endpoint resource")
-	}
-
 	ret := make(map[string]*EndpointsResource, len(rawResources))
+	errMap := make(map[string]error)
+	var errSlice []error
 	for _, r := range rawResources {
 		if r.GetTypeUrl() != EndpointTypeUrl {
-			klog.Errorf("invalid endpoint resource type: %s", r.GetTypeUrl())
+			err := fmt.Errorf("invalid endpoint resource type: %s", r.GetTypeUrl())
+			errSlice = append(errSlice, err)
 			continue
 		}
 		cla := &v3endpointpb.ClusterLoadAssignment{}
 		if err := proto.Unmarshal(r.GetValue(), cla); err != nil {
-			klog.Errorf("unmarshal ClusterLoadAssignment failed, error=%s\n", err)
+			err = fmt.Errorf("unmarshal ClusterLoadAssignment failed, error=%s\n", err)
+			errSlice = append(errSlice, err)
 			continue
 		}
 		endpoints, err := parseClusterLoadAssignment(cla)
 		if err != nil {
-			klog.Errorf("parse ClusterLoadAssignment %s failed: %s", cla.GetClusterName(), err)
+			errMap[cla.ClusterName] = err
 			continue
 		}
-		ret[cla.GetClusterName()] = endpoints
+		ret[cla.ClusterName] = endpoints
 	}
-	return ret, nil
+	if len(errMap) == 0 && len(errSlice) == 0 {
+		return ret, nil
+	}
+	return ret, processUnmarshalErrors(errSlice, errMap)
 }

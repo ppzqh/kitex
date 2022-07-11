@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
@@ -19,12 +20,21 @@ type xdsResourceManager struct {
 	cache map[xdsresource.ResourceType]map[string]xdsresource.Resource
 	meta  map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta
 
-	// updateChMap maintains the channel for notifying resource update
-	updateChMap map[xdsresource.ResourceType]map[string][]chan struct{}
+	// notifierMap maintains the channel for notifying resource update
+	notifierMap map[xdsresource.ResourceType]map[string][]*notifier
 	mu          sync.Mutex
 
-	// TODO: add dump handler?
 	dumpPath string
+}
+
+type notifier struct {
+	ch  chan struct{}
+	err error
+}
+
+func (n *notifier) notify(err error) {
+	n.err = err
+	close(n.ch)
 }
 
 func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManager, error) {
@@ -37,68 +47,58 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 		}
 	}
 
-	m := newXdsResourceManager()
+	m := &xdsResourceManager{
+		cache:       map[xdsresource.ResourceType]map[string]xdsresource.Resource{},
+		meta:        make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta),
+		notifierMap: make(map[xdsresource.ResourceType]map[string][]*notifier),
+		mu:          sync.Mutex{},
+		dumpPath:    defaultDumpPath,
+	}
 	// Initial xds client
 	cli, err := newXdsClient(bootstrapConfig, m)
 	if err != nil {
 		return nil, err
 	}
+
 	m.client = cli
-
-	m.dumpPath = defaultDumpPath
-
 	// start the cache cleaner
 	go m.cleaner()
-
 	return m, nil
 }
 
-func newXdsResourceManager() *xdsResourceManager {
-	cache := make(map[xdsresource.ResourceType]map[string]xdsresource.Resource)
-	chMap := make(map[xdsresource.ResourceType]map[string][]chan struct{})
-	meta := make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta)
-	for rt := range xdsresource.ResourceTypeToUrl {
-		cache[rt] = make(map[string]xdsresource.Resource)
-		chMap[rt] = make(map[string][]chan struct{})
-		meta[rt] = make(map[string]*xdsresource.ResourceMeta)
-	}
-
-	return &xdsResourceManager{
-		cache:       cache,
-		updateChMap: chMap,
-		meta:        meta,
-	}
-}
-
-func (m *xdsResourceManager) getFromCache(resourceType xdsresource.ResourceType, resourceName string) (interface{}, bool) {
+func (m *xdsResourceManager) getFromCache(rType xdsresource.ResourceType, rName string) (interface{}, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	res, ok := m.cache[resourceType][resourceName]
+	if _, ok := m.cache[rType]; !ok {
+		m.cache[rType] = make(map[string]xdsresource.Resource)
+		return nil, false
+	}
+
+	currTime := time.Now()
+	res, ok := m.cache[rType][rName]
 	if ok {
 		// Record the timestamp
-		if _, ok := m.meta[resourceType]; !ok {
-			m.meta[resourceType] = make(map[string]*xdsresource.ResourceMeta)
+		if _, ok := m.meta[rType]; !ok {
+			m.meta[rType] = make(map[string]*xdsresource.ResourceMeta)
 		}
-		if _, ok := m.meta[resourceType][resourceName]; ok {
-			m.meta[resourceType][resourceName].LastAccessTime = time.Now()
+		if _, ok := m.meta[rType][rName]; ok {
+			m.meta[rType][rName].LastAccessTime = currTime
 		} else {
-			m.meta[resourceType][resourceName] = &xdsresource.ResourceMeta{
-				LastAccessTime: time.Now(),
+			m.meta[rType][rName] = &xdsresource.ResourceMeta{
+				LastAccessTime: currTime,
 			}
 		}
-		return res, ok
 	}
-
-	return nil, false
+	return res, ok
 }
 
-func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.ResourceType, resourceName string) (interface{}, error) {
-	if _, ok := xdsresource.ResourceTypeToUrl[resourceType]; !ok {
-		return nil, fmt.Errorf("[XDS ResourceManager] invalid resource type: %d", resourceType)
+func (m *xdsResourceManager) Get(ctx context.Context, rType xdsresource.ResourceType, rName string) (interface{}, error) {
+	if _, ok := xdsresource.ResourceTypeToUrl[rType]; !ok {
+		return nil, fmt.Errorf("[XDS ResourceManager] invalid resource type: %d", rType)
 	}
 	// Get from cache
-	res, ok := m.getFromCache(resourceType, resourceName)
+	res, ok := m.getFromCache(rType, rName)
 	if ok {
 		return res, nil
 	}
@@ -106,14 +106,17 @@ func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.R
 	// Fetch resource via client and wait for the update
 	m.mu.Lock()
 	// Setup channel for this resource
-	chs := m.updateChMap[resourceType][resourceName]
+	if _, ok := m.notifierMap[rType]; !ok {
+		m.notifierMap[rType] = make(map[string][]*notifier)
+	}
+	chs := m.notifierMap[rType][rName]
 	if len(chs) == 0 {
 		// only send one request for this resource
-		m.client.Subscribe(resourceType, resourceName)
+		m.client.Watch(rType, rName)
 	}
-	updateCh := make(chan struct{})
-	chs = append(chs, updateCh)
-	m.updateChMap[resourceType][resourceName] = chs
+	n := &notifier{ch: make(chan struct{})}
+	chs = append(chs, n)
+	m.notifierMap[rType][rName] = chs
 	m.mu.Unlock()
 
 	// Set fetch timeout
@@ -122,13 +125,18 @@ func (m *xdsResourceManager) Get(ctx context.Context, resourceType xdsresource.R
 	t := time.NewTimer(timeout)
 
 	select {
-	case <-updateCh:
+	case <-n.ch:
 	case <-t.C:
 		return nil, fmt.Errorf("[XDS] client, fetch %s resource[%s] failed, timeout %s",
-			xdsresource.ResourceTypeToName[resourceType], resourceName, timeout)
+			xdsresource.ResourceTypeToName[rType], rName, timeout)
 	}
+	if n.err != nil {
+		return nil, n.err
+	}
+	res, _ = m.getFromCache(rType, rName)
+
+	// TODO: refactor dump logic
 	m.Dump()
-	res, _ = m.getFromCache(resourceType, resourceName)
 	return res, nil
 }
 
@@ -139,11 +147,11 @@ func (m *xdsResourceManager) cleaner() {
 	case <-t.C:
 		m.mu.Lock()
 		for rt := range m.meta {
-			for resourceName, meta := range m.meta[rt] {
+			for rName, meta := range m.meta[rt] {
 				if time.Now().Sub(meta.LastAccessTime) > defaultCacheExpireTime {
-					delete(m.meta[rt], resourceName)
-					delete(m.cache[rt], resourceName)
-					m.client.Unsubscribe(rt, resourceName)
+					delete(m.meta[rt], rName)
+					delete(m.cache[rt], rName)
+					m.client.RemoveWatch(rt, rName)
 				}
 			}
 		}
@@ -156,20 +164,19 @@ func (m *xdsResourceManager) Dump() {
 	defer m.mu.Unlock()
 
 	dumpResource := make(map[string]interface{})
-	for t, n := range xdsresource.ResourceTypeToName {
-		res := m.cache[t]
-		// TODO: record version in manager
-		res["version"] = m.client.versionMap[t]
-		dumpResource[n] = res
+	for rType, n := range xdsresource.ResourceTypeToName {
+		if res, ok := m.cache[rType]; ok {
+			dumpResource[n] = res
+		}
 	}
 
 	path := m.dumpPath
 	data, err := json.MarshalIndent(dumpResource, "", "    ")
 	if err != nil {
-		klog.Warnf("[XDS] marshal xds resource failed when dumping, error=%s", err)
+		klog.Warnf("[XDS] manager, marshal xds resource failed when dumping, error=%s", err)
 	}
 	if err := ioutil.WriteFile(path, data, 0o644); err != nil {
-		klog.Warnf("dump xds resource failed\n")
+		klog.Warnf("[XDS] manager, dump xds resource failed\n")
 	}
 }
 
@@ -178,112 +185,187 @@ func (m *xdsResourceManager) Close() {
 	m.client.close()
 }
 
-type ResourceUpdater interface {
-	//UpdateResourceCache(map[string]xdsresource.Resource, xdsresource.ResourceType)
-	UpdateListenerResource(map[string]*xdsresource.ListenerResource)
-	UpdateRouteConfigResource(map[string]*xdsresource.RouteConfigResource)
-	UpdateClusterResource(map[string]*xdsresource.ClusterResource)
-	UpdateEndpointsResource(map[string]*xdsresource.EndpointsResource)
+func (m *xdsResourceManager) updateMeta(rType xdsresource.ResourceType, version string) {
+	updateTime := time.Now()
+
+	if _, ok := m.meta[rType]; !ok {
+		m.meta[rType] = make(map[string]*xdsresource.ResourceMeta)
+	}
+	for name := range m.cache[rType] {
+		if mt, ok := m.meta[rType][name]; ok {
+			mt.UpdateTime = updateTime
+			mt.Version = version
+			continue
+		}
+		m.meta[rType][name] = &xdsresource.ResourceMeta{
+			UpdateTime: updateTime,
+			Version:    version,
+		}
+	}
+	// remove the meta of the resource that is not in the cache
+	for name := range m.meta[rType] {
+		if _, ok := m.cache[rType][name]; !ok {
+			delete(m.meta[rType], name)
+		}
+	}
 }
 
-//func (m *xdsResourceManager) UpdateResourceCache(up map[string]xdsresource.Resource, resourceType xdsresource.ResourceType) {
-//	m.mu.Lock()
-//	defer m.mu.Unlock()
-//
-//	for name, res := range up {
-//		// TODO: validate
-//		m.cache[resourceType][name] = res
-//		if chs, exist := m.updateChMap[resourceType][name]; exist {
-//			for _, ch := range chs {
-//				if ch != nil {
-//					close(ch)
-//				}
-//			}
-//			m.updateChMap[resourceType][name] = m.updateChMap[resourceType][name][0:0]
-//		}
-//	}
-//}
+var (
+	ErrResourceNotFound = errors.New("[XDS] resource not found in the latest xds response")
+)
 
-//func
-func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.ListenerResource) {
+func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.ListenerResource, version string) {
 	m.mu.Lock()
-	inlineRDS := make(map[string]*xdsresource.RouteConfigResource)
+	defer m.mu.Unlock()
+
 	for name, res := range up {
+		if _, ok := m.cache[xdsresource.ListenerType]; !ok {
+			m.cache[xdsresource.ListenerType] = make(map[string]xdsresource.Resource)
+		}
 		m.cache[xdsresource.ListenerType][name] = res
-		if chs, exist := m.updateChMap[xdsresource.ListenerType][name]; exist {
-			for _, ch := range chs {
-				if ch != nil {
-					close(ch)
+		if _, ok := m.notifierMap[xdsresource.ListenerType]; !ok {
+			continue
+		}
+		if ns, exist := m.notifierMap[xdsresource.ListenerType][name]; exist {
+			for _, n := range ns {
+				if n != nil {
+					n.notify(nil)
 				}
 			}
-			m.updateChMap[xdsresource.ListenerType][name] = m.updateChMap[xdsresource.ListenerType][name][0:0]
-		}
-		if res.InlineRouteConfig != nil {
-			inlineRDS[res.RouteConfigName] = res.InlineRouteConfig
+			delete(m.notifierMap[xdsresource.ListenerType], name)
+			//m.notifierMap[xdsresource.ListenerType][name] = m.notifierMap[xdsresource.ListenerType][name][0:0]
 		}
 	}
-	m.mu.Unlock()
-
-	// update inlineRDS to the cache
-	if len(inlineRDS) != 0 {
-		m.UpdateRouteConfigResource(inlineRDS)
+	// remove all resources that are not in the new update
+	for name := range m.cache[xdsresource.ListenerType] {
+		if _, ok := up[name]; !ok {
+			delete(m.cache[xdsresource.ListenerType], name)
+		}
 	}
+	// notify all watchers that the resource is not in the new update
+	for name, ns := range m.notifierMap[xdsresource.ListenerType] {
+		for _, n := range ns {
+			n.notify(ErrResourceNotFound)
+		}
+		delete(m.notifierMap[xdsresource.ListenerType], name)
+	}
+	// update meta
+	m.updateMeta(xdsresource.ListenerType, version)
 }
 
-func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresource.RouteConfigResource) {
+func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresource.RouteConfigResource, version string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for name, res := range up {
+		if _, ok := m.cache[xdsresource.RouteConfigType]; !ok {
+			m.cache[xdsresource.RouteConfigType] = make(map[string]xdsresource.Resource)
+		}
 		m.cache[xdsresource.RouteConfigType][name] = res
-		if chs, exist := m.updateChMap[xdsresource.RouteConfigType][name]; exist {
-			for _, ch := range chs {
-				if ch != nil {
-					close(ch)
+		if _, ok := m.notifierMap[xdsresource.RouteConfigType]; !ok {
+			continue
+		}
+		if ns, exist := m.notifierMap[xdsresource.RouteConfigType][name]; exist {
+			for _, n := range ns {
+				if n != nil {
+					n.notify(nil)
 				}
 			}
-			m.updateChMap[xdsresource.RouteConfigType][name] = m.updateChMap[xdsresource.RouteConfigType][name][0:0]
+			delete(m.notifierMap[xdsresource.RouteConfigType], name)
+			//m.notifierMap[xdsresource.RouteConfigType][name] = m.notifierMap[xdsresource.RouteConfigType][name][0:0]
 		}
 	}
+	// remove all resources that are not in the update list
+	for name := range m.cache[xdsresource.RouteConfigType] {
+		if _, ok := up[name]; !ok {
+			delete(m.cache[xdsresource.RouteConfigType], name)
+		}
+	}
+	// notify all watchers that the resource is not in the new update
+	for name, ns := range m.notifierMap[xdsresource.RouteConfigType] {
+		for _, n := range ns {
+			n.notify(ErrResourceNotFound)
+		}
+		delete(m.notifierMap[xdsresource.RouteConfigType], name)
+	}
+	// update meta
+	m.updateMeta(xdsresource.RouteConfigType, version)
 }
 
-func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.ClusterResource) {
-	m.mu.Lock()
-	inlineEDS := make(map[string]*xdsresource.EndpointsResource)
-	for name, res := range up {
-		m.cache[xdsresource.ClusterType][name] = res
-		if chs, exist := m.updateChMap[xdsresource.ClusterType][name]; exist {
-			for _, ch := range chs {
-				if ch != nil {
-					close(ch)
-				}
-			}
-			m.updateChMap[xdsresource.ClusterType][name] = m.updateChMap[xdsresource.ClusterType][name][0:0]
-		}
-		if res.InlineEndpoints != nil {
-			inlineEDS[res.EndpointName] = res.InlineEndpoints
-		}
-	}
-	m.mu.Unlock()
-	// update inlineEDS to the cache
-	if len(inlineEDS) != 0 {
-		m.UpdateEndpointsResource(inlineEDS)
-	}
-}
-
-func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.EndpointsResource) {
+func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.ClusterResource, version string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for name, res := range up {
-		m.cache[xdsresource.EndpointsType][name] = res
-		if chs, exist := m.updateChMap[xdsresource.EndpointsType][name]; exist {
-			for _, ch := range chs {
-				if ch != nil {
-					close(ch)
+		if _, ok := m.cache[xdsresource.ClusterType]; !ok {
+			m.cache[xdsresource.ClusterType] = make(map[string]xdsresource.Resource)
+		}
+		m.cache[xdsresource.ClusterType][name] = res
+		if _, ok := m.notifierMap[xdsresource.ClusterType]; !ok {
+			continue
+		}
+		if ns, exist := m.notifierMap[xdsresource.ClusterType][name]; exist {
+			for _, n := range ns {
+				if n != nil {
+					n.notify(nil)
 				}
 			}
-			m.updateChMap[xdsresource.EndpointsType][name] = m.updateChMap[xdsresource.EndpointsType][name][0:0]
+			delete(m.notifierMap[xdsresource.ClusterType], name)
+			//m.notifierMap[xdsresource.ClusterType][name] = m.notifierMap[xdsresource.ClusterType][name][0:0]
 		}
 	}
+	// remove all resources that are not in the update list
+	for name := range m.cache[xdsresource.ClusterType] {
+		if _, ok := up[name]; !ok {
+			delete(m.cache[xdsresource.ClusterType], name)
+		}
+	}
+	// notify all watchers that the resource is not in the new update
+	for name, ns := range m.notifierMap[xdsresource.ClusterType] {
+		for _, n := range ns {
+			n.notify(ErrResourceNotFound)
+		}
+		delete(m.notifierMap[xdsresource.ClusterType], name)
+	}
+	// update meta
+	m.updateMeta(xdsresource.ClusterType, version)
+}
+
+func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.EndpointsResource, version string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for name, res := range up {
+		if _, ok := m.cache[xdsresource.EndpointsType]; !ok {
+			m.cache[xdsresource.EndpointsType] = make(map[string]xdsresource.Resource)
+		}
+		m.cache[xdsresource.EndpointsType][name] = res
+		if _, ok := m.notifierMap[xdsresource.EndpointsType]; !ok {
+			continue
+		}
+		if ns, exist := m.notifierMap[xdsresource.EndpointsType][name]; exist {
+			for _, n := range ns {
+				if n != nil {
+					n.notify(nil)
+				}
+			}
+			delete(m.notifierMap[xdsresource.EndpointsType], name)
+			//m.notifierMap[xdsresource.EndpointsType][name] = m.notifierMap[xdsresource.EndpointsType][name][0:0]
+		}
+	}
+	// remove all resources that are not in the update list
+	for name := range m.cache[xdsresource.EndpointsType] {
+		if _, ok := up[name]; !ok {
+			delete(m.cache[xdsresource.EndpointsType], name)
+		}
+	}
+	// notify all watchers that the resource is not in the new update
+	for name, ns := range m.notifierMap[xdsresource.EndpointsType] {
+		for _, n := range ns {
+			n.notify(ErrResourceNotFound)
+		}
+		delete(m.notifierMap[xdsresource.EndpointsType], name)
+	}
+	// update meta
+	m.updateMeta(xdsresource.EndpointsType, version)
 }

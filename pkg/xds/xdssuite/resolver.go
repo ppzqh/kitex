@@ -48,20 +48,28 @@ func getEndpoints(ctx context.Context, desc string) ([]*xdsresource.Endpoint, er
 	if err != nil {
 		return nil, err
 	}
-	resource, err := m.Get(ctx, xdsresource.EndpointsType, desc)
+	res, err := m.Get(ctx, xdsresource.ClusterType, desc)
 	if err != nil {
 		return nil, err
 	}
-
-	cla, ok := resource.(*xdsresource.EndpointsResource)
-	if !ok {
-		return nil, fmt.Errorf("wrong endpoint resource for cluster: %s", desc)
+	cluster := res.(*xdsresource.ClusterResource)
+	var endpoints *xdsresource.EndpointsResource
+	if cluster.InlineEndpoints != nil {
+		endpoints = cluster.InlineEndpoints
+	} else {
+		resource, err := m.Get(ctx, xdsresource.EndpointsType, cluster.EndpointName)
+		if err != nil {
+			return nil, err
+		}
+		cla := resource.(*xdsresource.EndpointsResource)
+		endpoints = cla
 	}
-	if cla == nil || len(cla.Localities) == 0 {
+
+	if endpoints == nil || len(endpoints.Localities) == 0 {
 		return nil, fmt.Errorf("no endpoints for cluster: %s", desc)
 	}
 	// TODO: filter localities
-	return cla.Localities[0].Endpoints, nil
+	return endpoints.Localities[0].Endpoints, nil
 }
 
 func (r *XDSResolver) Diff(cacheKey string, prev, next discovery.Result) (discovery.Change, bool) {

@@ -22,8 +22,8 @@ func TestUnmarshalEDSError(t *testing.T) {
 		{
 			name:         "resource is nil",
 			rawResources: nil,
-			want:         nil,
-			wantErr:      true,
+			want:         map[string]*EndpointsResource{},
+			wantErr:      false,
 		},
 		{
 			name: "incorrect resource type url",
@@ -31,7 +31,7 @@ func TestUnmarshalEDSError(t *testing.T) {
 				{TypeUrl: ListenerTypeUrl, Value: []byte{}},
 			},
 			want:    map[string]*EndpointsResource{},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -56,7 +56,7 @@ func TestUnmarshalEDSSuccess(t *testing.T) {
 	rawResources := []*any.Any{
 		testutil.MarshalAny(&v3endpointpb.ClusterLoadAssignment{
 			ClusterName: claName,
-			Endpoints:   []*v3endpointpb.LocalityLbEndpoints{
+			Endpoints: []*v3endpointpb.LocalityLbEndpoints{
 				{
 					LbEndpoints: []*v3endpointpb.LbEndpoint{
 						{
@@ -66,7 +66,7 @@ func TestUnmarshalEDSSuccess(t *testing.T) {
 										Address: &v3.Address_SocketAddress{
 											SocketAddress: &v3.SocketAddress{
 												Protocol: v3.SocketAddress_TCP,
-												Address: addr,
+												Address:  addr,
 												PortSpecifier: &v3.SocketAddress_PortValue{
 													PortValue: uint32(port1),
 												},
@@ -86,7 +86,7 @@ func TestUnmarshalEDSSuccess(t *testing.T) {
 										Address: &v3.Address_SocketAddress{
 											SocketAddress: &v3.SocketAddress{
 												Protocol: v3.SocketAddress_TCP,
-												Address: addr,
+												Address:  addr,
 												PortSpecifier: &v3.SocketAddress_PortValue{
 													PortValue: uint32(port2),
 												},
@@ -118,4 +118,3 @@ func TestUnmarshalEDSSuccess(t *testing.T) {
 	test.Assert(t, e2.Weight() == 50)
 	test.Assert(t, e2.Addr().String() == addr+":"+strconv.Itoa(port2))
 }
-

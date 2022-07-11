@@ -22,15 +22,15 @@ type StreamClient interface {
 }
 
 type xdsClient struct {
-	config             *BootstrapConfig
-	mu                 sync.RWMutex
-	subscribedResource map[xdsresource.ResourceType]map[string]bool
-	versionMap         map[xdsresource.ResourceType]string
-	nonceMap           map[xdsresource.ResourceType]string
+	config          *BootstrapConfig
+	mu              sync.RWMutex
+	watchedResource map[xdsresource.ResourceType]map[string]bool
+	versionMap      map[xdsresource.ResourceType]string
+	nonceMap        map[xdsresource.ResourceType]string
 
 	streamClient     StreamClient
 	streamClientLock sync.Mutex
-	resourceUpdater  ResourceUpdater
+	resourceUpdater  *xdsResourceManager
 
 	refreshInterval time.Duration
 	// channel for stop
@@ -46,7 +46,7 @@ func newStreamClient(addr string) (StreamClient, error) {
 	return sc, err
 }
 
-func newXdsClient(bCfg *BootstrapConfig, updater ResourceUpdater) (*xdsClient, error) {
+func newXdsClient(bCfg *BootstrapConfig, updater *xdsResourceManager) (*xdsClient, error) {
 	// build stream client that communicates with the xds server
 	sc, err := newStreamClient(bCfg.XdsSvrCfg.ServerAddress)
 	if err != nil {
@@ -59,41 +59,42 @@ func newXdsClient(bCfg *BootstrapConfig, updater ResourceUpdater) (*xdsClient, e
 	}
 
 	cli := &xdsClient{
-		config:             bCfg,
-		streamClient:       sc,
-		subscribedResource: sr,
-		versionMap:         make(map[xdsresource.ResourceType]string),
-		nonceMap:           make(map[xdsresource.ResourceType]string),
-		resourceUpdater:    updater,
-		refreshInterval:    defaultRefreshInterval,
+		config:          bCfg,
+		streamClient:    sc,
+		watchedResource: sr,
+		versionMap:      make(map[xdsresource.ResourceType]string),
+		nonceMap:        make(map[xdsresource.ResourceType]string),
+		resourceUpdater: updater,
+		refreshInterval: defaultRefreshInterval,
+		closeCh:         make(chan struct{}),
 	}
 
 	cli.run()
 	return cli, nil
 }
 
-func (c *xdsClient) Subscribe(resourceType xdsresource.ResourceType, resourceName string) {
+func (c *xdsClient) Watch(rType xdsresource.ResourceType, rName string) {
 	c.mu.Lock()
 	// New resource type
-	if r := c.subscribedResource[resourceType]; r == nil {
-		c.subscribedResource[resourceType] = make(map[string]bool)
+	if r := c.watchedResource[rType]; r == nil {
+		c.watchedResource[rType] = make(map[string]bool)
 	}
 	// subscribe new resource
-	c.subscribedResource[resourceType][resourceName] = true
+	c.watchedResource[rType][rName] = true
 	c.mu.Unlock()
 	// send request for this resource
-	c.sendRequest(resourceType, false, "")
+	c.sendRequest(rType, false, "")
 }
 
-func (c *xdsClient) Unsubscribe(resourceType xdsresource.ResourceType, resourceName string) {
+func (c *xdsClient) RemoveWatch(rType xdsresource.ResourceType, rName string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, ok := c.subscribedResource[resourceType]; !ok {
+	if _, ok := c.watchedResource[rType]; !ok {
 		return
 	}
 	// remove this resource
-	delete(c.subscribedResource[resourceType], resourceName)
+	delete(c.watchedResource[rType], rName)
 }
 
 // refresh all resources
@@ -107,7 +108,7 @@ func (c *xdsClient) sender() {
 	// sender
 	go func() {
 		defer func() {
-			if err := recover(); err == nil {
+			if err := recover(); err != nil {
 				klog.Errorf("[XDS] client: run sender panic")
 			}
 		}()
@@ -118,7 +119,7 @@ func (c *xdsClient) sender() {
 				klog.Infof("[XDS] client: stop ads client sender")
 				return
 			case <-timer.C:
-				c.refresh()
+				//c.refresh()
 				timer.Reset(c.refreshInterval)
 			}
 		}
@@ -129,8 +130,8 @@ func (c *xdsClient) receiver() {
 	// receiver
 	go func() {
 		defer func() {
-			if err := recover(); err == nil {
-				klog.Errorf("[XDS] client: run receiver panic")
+			if err := recover(); err != nil {
+				klog.Errorf("[XDS] client: run receiver panic, error: %s", err)
 			}
 		}()
 
@@ -180,9 +181,9 @@ func (c *xdsClient) getStreamClient() (StreamClient, error) {
 	return sc, err
 }
 
-func (c *xdsClient) sendRequest(resourceType xdsresource.ResourceType, ack bool, errMsg string) {
+func (c *xdsClient) sendRequest(rType xdsresource.ResourceType, ack bool, errMsg string) {
 	// prepare request
-	req := c.prepareRequest(resourceType, ack, errMsg)
+	req := c.prepareRequest(rType, ack, errMsg)
 	if req == nil {
 		return
 	}
@@ -206,58 +207,62 @@ func (c *xdsClient) recv() (resp *v3discovery.DiscoveryResponse, err error) {
 	return resp, err
 }
 
-func (c *xdsClient) updateMetaAndACK(rsrcType xdsresource.ResourceType, nonce, version string, err error) {
+func (c *xdsClient) updateAndACK(rType xdsresource.ResourceType, nonce, version string, err error) {
 	// update nonce and version
 	// update and ACK only if error is nil, or NACK should be sent
 	var errMsg string
 	c.mu.Lock()
 	if err == nil {
-		c.versionMap[rsrcType] = version
+		c.versionMap[rType] = version
 	} else {
 		errMsg = err.Error()
 	}
-	c.nonceMap[rsrcType] = nonce
+	c.nonceMap[rType] = nonce
 	c.mu.Unlock()
-	c.sendRequest(rsrcType, true, errMsg)
+	c.sendRequest(rType, true, errMsg)
 }
 
 func (c *xdsClient) handleLDS(resp *v3discovery.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalLDS(resp.GetResources())
-	c.updateMetaAndACK(xdsresource.ListenerType, resp.GetNonce(), resp.GetVersionInfo(), err)
+	c.updateAndACK(xdsresource.ListenerType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
 		return err
 	}
+	// update to cache
+	c.resourceUpdater.UpdateListenerResource(res, resp.GetVersionInfo())
+
 	c.mu.Lock()
 	for name, v := range res {
-		if _, ok := c.subscribedResource[xdsresource.ListenerType][name]; !ok {
+		if _, ok := c.watchedResource[xdsresource.ListenerType][name]; !ok {
 			delete(res, name)
 			continue
 		}
 		// subscribe the routeConfig name
-		if _, ok := c.subscribedResource[xdsresource.RouteConfigType]; !ok {
-			c.subscribedResource[xdsresource.RouteConfigType] = make(map[string]bool)
+		if _, ok := c.watchedResource[xdsresource.RouteConfigType]; !ok {
+			c.watchedResource[xdsresource.RouteConfigType] = make(map[string]bool)
 		}
-		c.subscribedResource[xdsresource.RouteConfigType][v.RouteConfigName] = true
+		c.watchedResource[xdsresource.RouteConfigType][v.RouteConfigName] = true
 	}
 	c.mu.Unlock()
-	// update to cache
-	c.resourceUpdater.UpdateListenerResource(res)
-	// send RDS request
-	c.sendRequest(xdsresource.RouteConfigType, false, "")
+	//// send RDS request
+	//c.sendRequest(xdsresource.RouteConfigType, false, "")
 	return nil
 }
 
 func (c *xdsClient) handleRDS(resp *v3discovery.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalRDS(resp.GetResources())
-	c.updateMetaAndACK(xdsresource.RouteConfigType, resp.GetNonce(), resp.GetVersionInfo(), err)
+	c.updateAndACK(xdsresource.RouteConfigType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
 		return err
 	}
+	// update to cache
+	c.resourceUpdater.UpdateRouteConfigResource(res, resp.GetVersionInfo())
+
 	// prepare CDS request
 	c.mu.Lock()
 	for name, rcfg := range res {
 		// only accept the routeConfig that is subscribed
-		if _, ok := c.subscribedResource[xdsresource.RouteConfigType][name]; !ok {
+		if _, ok := c.watchedResource[xdsresource.RouteConfigType][name]; !ok {
 			delete(res, name)
 			continue
 		}
@@ -266,65 +271,63 @@ func (c *xdsClient) handleRDS(resp *v3discovery.DiscoveryResponse) error {
 		for _, vh := range rcfg.VirtualHosts {
 			for _, r := range vh.Routes {
 				for _, wc := range r.WeightedClusters {
-					if _, ok := c.subscribedResource[xdsresource.ClusterType]; !ok {
-						c.subscribedResource[xdsresource.ClusterType] = make(map[string]bool)
+					if _, ok := c.watchedResource[xdsresource.ClusterType]; !ok {
+						c.watchedResource[xdsresource.ClusterType] = make(map[string]bool)
 					}
-					c.subscribedResource[xdsresource.ClusterType][wc.Name] = true
+					c.watchedResource[xdsresource.ClusterType][wc.Name] = true
 				}
 			}
 		}
 	}
 	c.mu.Unlock()
-	// update to cache
-	c.resourceUpdater.UpdateRouteConfigResource(res)
-	// send CDS request
-	c.sendRequest(xdsresource.ClusterType, false, "")
+	//// send CDS request
+	//c.sendRequest(xdsresource.ClusterType, false, "")
 	return nil
 }
 
 func (c *xdsClient) handleCDS(resp *v3discovery.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalCDS(resp.GetResources())
-	c.updateMetaAndACK(xdsresource.ClusterType, resp.GetNonce(), resp.GetVersionInfo(), err)
+	c.updateAndACK(xdsresource.ClusterType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
 		return fmt.Errorf("handle cluster failed: %s", err)
 	}
+	// update to cache
+	c.resourceUpdater.UpdateClusterResource(res, resp.GetVersionInfo())
 	// prepare EDS request
 	c.mu.Lock()
 	// store all inline EDS
 	for name, v := range res {
-		if _, ok := c.subscribedResource[xdsresource.ClusterType][name]; !ok {
+		if _, ok := c.watchedResource[xdsresource.ClusterType][name]; !ok {
 			delete(res, name)
 			continue
 		}
 		// subscribe endpoint name
 		if v.EndpointName != "" {
-			c.subscribedResource[xdsresource.EndpointsType][v.EndpointName] = true
+			c.watchedResource[xdsresource.EndpointsType][v.EndpointName] = true
 		} else {
-			c.subscribedResource[xdsresource.EndpointsType][name] = true
+			c.watchedResource[xdsresource.EndpointsType][name] = true
 		}
 	}
 	c.mu.Unlock()
-	// update to cache
-	c.resourceUpdater.UpdateClusterResource(res)
-	// send EDS request
-	c.sendRequest(xdsresource.EndpointsType, false, "")
+	//// send EDS request
+	//c.sendRequest(xdsresource.EndpointsType, false, "")
 	return nil
 }
 
 func (c *xdsClient) handleEDS(resp *v3discovery.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalEDS(resp.GetResources())
-	c.updateMetaAndACK(xdsresource.EndpointsType, resp.GetNonce(), resp.GetVersionInfo(), err)
+	c.updateAndACK(xdsresource.EndpointsType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
 		return fmt.Errorf("handle endpoint failed: %s", err)
 	}
+	// update to cache
+	c.resourceUpdater.UpdateEndpointsResource(res, resp.GetVersionInfo())
 	for name := range res {
-		if _, ok := c.subscribedResource[xdsresource.EndpointsType][name]; !ok {
+		if _, ok := c.watchedResource[xdsresource.EndpointsType][name]; !ok {
 			delete(res, name)
 			continue
 		}
 	}
-	// update to cache
-	c.resourceUpdater.UpdateEndpointsResource(res)
 	return nil
 }
 
@@ -335,16 +338,19 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 		return fmt.Errorf("invalid discovery response")
 	}
 	url := resp.GetTypeUrl()
-	rsrcType, ok := xdsresource.ResourceUrlToType[url]
+	rType, ok := xdsresource.ResourceUrlToType[url]
 	if !ok {
 		return fmt.Errorf("unknown type of resource, url: %s", url)
+	}
+	if _, ok := c.watchedResource[rType]; !ok {
+		c.watchedResource[rType] = make(map[string]bool)
 	}
 	/*
 		handle different resources:
 		unmarshal resources and ack, update to cache if no error
 	*/
 	var err error
-	switch rsrcType {
+	switch rType {
 	case xdsresource.ListenerType:
 		err = c.handleLDS(resp)
 	case xdsresource.RouteConfigType:
@@ -358,37 +364,37 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 }
 
 // prepare new request and send to the channel
-// resourceNames should include all the subscribed resources of the specified type
-func (c *xdsClient) prepareRequest(resourceType xdsresource.ResourceType, ack bool, errMsg string) *v3discovery.DiscoveryRequest {
+// ResourceNames should include all the subscribed resources of the specified type
+func (c *xdsClient) prepareRequest(rType xdsresource.ResourceType, ack bool, errMsg string) *v3discovery.DiscoveryRequest {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if _, ok := c.subscribedResource[resourceType]; !ok {
+	if _, ok := c.watchedResource[rType]; !ok {
 		return nil
 	}
 
 	var (
-		version       string
-		nonce         string
-		resourceNames []string
+		version string
+		nonce   string
+		rNames  []string
 	)
-	res, ok := c.subscribedResource[resourceType]
+	res, ok := c.watchedResource[rType]
 	if !ok || len(res) == 0 {
 		return nil
 	}
 	// prepare resource name
-	resourceNames = make([]string, 0, len(res))
+	rNames = make([]string, 0, len(res))
 	for name := range res {
-		resourceNames = append(resourceNames, name)
+		rNames = append(rNames, name)
 	}
 	// prepare version and nonce
-	version = c.versionMap[resourceType]
-	nonce = c.nonceMap[resourceType]
+	version = c.versionMap[rType]
+	nonce = c.nonceMap[rType]
 	req := &v3discovery.DiscoveryRequest{
 		VersionInfo:   version,
 		Node:          c.config.Node,
-		TypeUrl:       xdsresource.ResourceTypeToUrl[resourceType],
-		ResourceNames: resourceNames,
+		TypeUrl:       xdsresource.ResourceTypeToUrl[rType],
+		ResourceNames: rNames,
 		ResponseNonce: nonce,
 	}
 

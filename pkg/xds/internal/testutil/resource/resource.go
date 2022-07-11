@@ -16,13 +16,23 @@ import (
 
 // listener
 var (
-	ListenerName       = "listener"
-	ListenerVersion    = "v1"
-	ListenerNonce      = "nonce1"
-	RouteConfigName    = "routeConfig"
-	RouteConfigVersion = "v2"
-	RouteConfigNonce   = "nonce2"
-	ClusterName        = "cluster"
+	ListenerName1 = "listener1"
+	ListenerName2 = "listener2"
+	LDSVersion1  = "v1"
+	LDSVersion2  = "v2"
+	LDSVersion3  = "v3"
+	LDSNonce1    = "nonce1"
+	LDSNonce2    = "nonce2"
+	LDSNonce3    = "nonce3"
+
+	RouteConfigName1    = "routeConfig1"
+	RouteConfigName2    = "routeConfig2"
+	RouteConfigVersion1 = "v1"
+	RouteConfigVersion2 = "v2"
+	RouteConfigNonce1   = "nonce1"
+	RouteConfigNonce2   = "nonce2"
+
+	ClusterName         = "cluster"
 	ClusterVersion     = "v3"
 	ClusterNonce       = "nonce3"
 	EndpointName       = "endpoint"
@@ -30,13 +40,27 @@ var (
 	EndpointNonce      = "nonce4"
 
 	Listener1 = &v3listenerpb.Listener{
-		Name: ListenerName,
+		Name: ListenerName1,
 		ApiListener: &v3listenerpb.ApiListener{
 			ApiListener: testutil.MarshalAny(
 				&v3httppb.HttpConnectionManager{
 					RouteSpecifier: &v3httppb.HttpConnectionManager_Rds{
 						Rds: &v3httppb.Rds{
-							RouteConfigName: RouteConfigName,
+							RouteConfigName: RouteConfigName1,
+						},
+					},
+				},
+			),
+		},
+	}
+	Listener2 = &v3listenerpb.Listener{
+		Name: ListenerName2,
+		ApiListener: &v3listenerpb.ApiListener{
+			ApiListener: testutil.MarshalAny(
+				&v3httppb.HttpConnectionManager{
+					RouteSpecifier: &v3httppb.HttpConnectionManager_Rds{
+						Rds: &v3httppb.Rds{
+							RouteConfigName: RouteConfigName1,
 						},
 					},
 				},
@@ -44,7 +68,40 @@ var (
 		},
 	}
 	RouteConfig1 = &v3routepb.RouteConfiguration{
-		Name: RouteConfigName,
+		Name: RouteConfigName1,
+		VirtualHosts: []*v3routepb.VirtualHost{
+			{
+				Name: "vhName",
+				Routes: []*v3routepb.Route{
+					{
+						Match: &v3routepb.RouteMatch{
+							PathSpecifier: &v3routepb.RouteMatch_Path{
+								Path: "path",
+							},
+						},
+						Action: &v3routepb.Route_Route{
+							Route: &v3routepb.RouteAction{
+								ClusterSpecifier: &v3routepb.RouteAction_WeightedClusters{
+									WeightedClusters: &v3routepb.WeightedCluster{
+										Clusters: []*v3routepb.WeightedCluster_ClusterWeight{
+											{
+												Name: ClusterName,
+												Weight: &wrapperspb.UInt32Value{
+													Value: uint32(50),
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	RouteConfig2 = &v3routepb.RouteConfiguration{
+		Name: RouteConfigName2,
 		VirtualHosts: []*v3routepb.VirtualHost{
 			{
 				Name: "vhName",
@@ -140,23 +197,54 @@ var (
 
 	// response
 	LdsResp1 = &v3discovery.DiscoveryResponse{
-		VersionInfo: ListenerVersion,
+		VersionInfo: LDSVersion1,
 		Resources: []*any.Any{
 			testutil.MarshalAny(Listener1),
+			testutil.MarshalAny(Listener2),
 		},
 		Canary:       false,
 		TypeUrl:      xdsresource.ListenerTypeUrl,
-		Nonce:        ListenerNonce,
+		Nonce:        LDSNonce1,
 		ControlPlane: nil,
 	}
+	LdsResp2 = &v3discovery.DiscoveryResponse{
+		VersionInfo:  LDSVersion2,
+		Resources:    []*any.Any{
+			testutil.MarshalAny(Listener2),
+		},
+		Canary:       false,
+		TypeUrl:      xdsresource.ListenerTypeUrl,
+		Nonce:        LDSNonce2,
+		ControlPlane: nil,
+	}
+	LdsResp3 = &v3discovery.DiscoveryResponse{
+		VersionInfo:  LDSVersion3,
+		Resources:    nil,
+		Canary:       false,
+		TypeUrl:      xdsresource.ListenerTypeUrl,
+		Nonce:        LDSNonce3,
+		ControlPlane: nil,
+	}
+
 	RdsResp1 = &v3discovery.DiscoveryResponse{
-		VersionInfo: RouteConfigVersion,
+		VersionInfo: RouteConfigVersion1,
 		Resources: []*any.Any{
 			testutil.MarshalAny(RouteConfig1),
+			testutil.MarshalAny(RouteConfig2),
 		},
 		Canary:       false,
 		TypeUrl:      xdsresource.RouteTypeUrl,
-		Nonce:        RouteConfigNonce,
+		Nonce:        RouteConfigNonce1,
+		ControlPlane: nil,
+	}
+	RdsResp2 = &v3discovery.DiscoveryResponse{
+		VersionInfo: RouteConfigVersion1,
+		Resources: []*any.Any{
+			testutil.MarshalAny(RouteConfig2),
+		},
+		Canary:       false,
+		TypeUrl:      xdsresource.RouteTypeUrl,
+		Nonce:        RouteConfigNonce1,
 		ControlPlane: nil,
 	}
 	CdsResp1 = &v3discovery.DiscoveryResponse{

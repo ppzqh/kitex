@@ -9,34 +9,70 @@ import (
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"github.com/cloudwego/kitex/server"
 	"net"
+	"sync"
 	"time"
 )
 
-type Server struct {
-	xdsSvr *testXDSServer
-}
-
-func StartXDSServer(address string) server.Server {
-	addr, _ := net.ResolveTCPAddr("tcp", address)
-	svr := aggregateddiscoveryservice.NewServer(
-		&testXDSServer{
-			respCh: make(chan *v3discovery.DiscoveryResponse),
-		},
-		server.WithServiceAddr(addr),
-	)
-	go func() {
-		_ = svr.Run()
-	}()
-	time.Sleep(time.Millisecond * 100)
-	return svr
-}
-
 type testXDSServer struct {
-	//reqCh chan interface{}
+	mu sync.Mutex
+	server.Server
 	respCh chan *v3discovery.DiscoveryResponse
 }
 
-func (svr *testXDSServer) StreamAggregatedResources(stream service.AggregatedDiscoveryService_StreamAggregatedResourcesServer) (err error) {
+func (svr *testXDSServer) PushResourceUpdate(resp *v3discovery.DiscoveryResponse) {
+	svr.respCh <- resp
+}
+
+func StartXDSServer(address string) *testXDSServer {
+	addr, _ := net.ResolveTCPAddr("tcp", address)
+	respCh := make(chan *v3discovery.DiscoveryResponse)
+
+	svr := aggregateddiscoveryservice.NewServer(
+		&testAdsService{
+			respCh: respCh,
+			resourceCache: map[xdsresource.ResourceType]map[string]*v3discovery.DiscoveryResponse{
+				xdsresource.ListenerType: {
+					"":                            resource.LdsResp1,
+					resource.LdsResp1.VersionInfo: resource.LdsResp1,
+					resource.LdsResp2.VersionInfo: resource.LdsResp2,
+					resource.LdsResp3.VersionInfo: resource.LdsResp3,
+				},
+				xdsresource.RouteConfigType: {
+					"":                            resource.RdsResp1,
+					resource.RdsResp1.VersionInfo: resource.RdsResp1,
+				},
+				xdsresource.ClusterType: {
+					"":                            resource.CdsResp1,
+					resource.CdsResp1.VersionInfo: resource.CdsResp1,
+				},
+				xdsresource.EndpointsType: {
+					"":                            resource.EdsResp1,
+					resource.EdsResp1.VersionInfo: resource.EdsResp1,
+				},
+			},
+		},
+		server.WithServiceAddr(addr),
+	)
+
+	xdsServer := &testXDSServer{
+		sync.Mutex{},
+		svr,
+		respCh,
+	}
+	go func() {
+		_ = xdsServer.Run()
+	}()
+	time.Sleep(time.Millisecond * 100)
+	return xdsServer
+}
+
+type testAdsService struct {
+	respCh chan *v3discovery.DiscoveryResponse
+	// resourceCache: version -> response
+	resourceCache map[xdsresource.ResourceType]map[string]*v3discovery.DiscoveryResponse
+}
+
+func (svr *testAdsService) StreamAggregatedResources(stream service.AggregatedDiscoveryService_StreamAggregatedResourcesServer) (err error) {
 	errCh := make(chan error, 2)
 	// receive the request
 	go func() {
@@ -70,32 +106,27 @@ func (svr *testXDSServer) StreamAggregatedResources(stream service.AggregatedDis
 	}
 }
 
-func (svr *testXDSServer) handleRequest(msg interface{}) {
+func (svr *testAdsService) handleRequest(msg interface{}) {
 	req, ok := msg.(*v3discovery.DiscoveryRequest)
 	if !ok {
 		// ignore msgs other than DiscoveryRequest
 		return
 	}
-	switch req.TypeUrl {
-	case xdsresource.ListenerTypeUrl:
-		if req.VersionInfo == "" {
-			svr.respCh <- resource.LdsResp1
-		}
-	case xdsresource.RouteTypeUrl:
-		if req.VersionInfo == "" {
-			svr.respCh <- resource.RdsResp1
-		}
-	case xdsresource.ClusterTypeUrl:
-		if req.VersionInfo == "" {
-			svr.respCh <- resource.CdsResp1
-		}
-	case xdsresource.EndpointTypeUrl:
-		if req.VersionInfo == "" {
-			svr.respCh <- resource.EdsResp1
-		}
+	rType, ok := xdsresource.ResourceUrlToType[req.TypeUrl]
+	if !ok {
+		return
 	}
+	if _, ok := svr.resourceCache[rType]; !ok {
+		return
+	}
+	cache, ok := svr.resourceCache[rType][req.VersionInfo]
+	// ignore ack
+	if !ok || req.ResponseNonce == cache.Nonce {
+		return
+	}
+	svr.respCh <- cache
 }
 
-func (svr *testXDSServer) DeltaAggregatedResources(stream service.AggregatedDiscoveryService_DeltaAggregatedResourcesServer) (err error) {
+func (svr *testAdsService) DeltaAggregatedResources(stream service.AggregatedDiscoveryService_DeltaAggregatedResourcesServer) (err error) {
 	return fmt.Errorf("DeltaAggregatedResources has not been implemented")
 }

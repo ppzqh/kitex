@@ -19,8 +19,8 @@ func TestUnmarshalCDSError(t *testing.T) {
 		{
 			name:         "resource is nil",
 			rawResources: nil,
-			want:         nil,
-			wantErr:      true,
+			want:         map[string]*ClusterResource{},
+			wantErr:      false,
 		},
 		{
 			name: "incorrect resource type url",
@@ -28,7 +28,7 @@ func TestUnmarshalCDSError(t *testing.T) {
 				{TypeUrl: ListenerTypeUrl, Value: []byte{}},
 			},
 			want:    map[string]*ClusterResource{},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {

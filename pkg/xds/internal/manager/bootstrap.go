@@ -31,16 +31,6 @@ type channelCreds struct {
 	Config json.RawMessage `json:"config,omitempty"`
 }
 
-// UnmarshalJSON takes the json data (a server) and unmarshals it to the struct.
-func (sc *XDSServerConfig) UnmarshalJSON(data []byte) error {
-	var server xdsServer
-	if err := json.Unmarshal(data, &server); err != nil {
-		return fmt.Errorf("[XDS Bootstrap] Unmarshal field ServerConfig failed during bootstrap: %v", err)
-	}
-	sc.ServerAddress = server.ServerURI
-	return nil
-}
-
 var XDSBootstrapFileNameEnv = "GRPC_XDS_BOOTSTRAP"
 
 func newBootstrapConfig() (*BootstrapConfig, error) {
@@ -59,7 +49,6 @@ func processServerAddress(bcfg *BootstrapConfig) {
 	bcfg.XdsSvrCfg.ServerAddress = svrAddr
 }
 
-// TODO: function is copied from grpc?
 func readBootstrap(fileName string) (*BootstrapConfig, error) {
 	b, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -78,28 +67,30 @@ func readBootstrap(fileName string) (*BootstrapConfig, error) {
 		case "node":
 			node := &v3core.Node{}
 			if err := m.Unmarshal(bytes.NewReader(v), node); err != nil {
-				return nil, fmt.Errorf("[XDS Bootstrap] unmarshal node failed: %v", err)
+				return nil, fmt.Errorf("[XDS] Bootstrap, unmarshal node failed: %v", err)
 			}
 			bootstrapConfig.Node = node
 		case "xds_servers":
-			servers, err := unmarshalJSONServerConfigSlice(v)
+			servers, err := unmarshalServerConfig(v)
 			if err != nil {
-				return nil, fmt.Errorf("[XDS Bootstrap] unmarshal xds_server failed: %v", err)
+				return nil, fmt.Errorf("[XDS] Bootstrap, unmarshal xds_server failed: %v", err)
 			}
+			// Use the first server in the list.
+			// TODO: support multiple servers?
 			bootstrapConfig.XdsSvrCfg = servers[0]
 		}
 	}
 	return bootstrapConfig, nil
 }
 
-// unmarshalJSONServerConfigSlice unmarshals JSON to a slice.
-func unmarshalJSONServerConfigSlice(data []byte) ([]*XDSServerConfig, error) {
+// unmarshalServerConfig unmarshal xds server config to a slice.
+func unmarshalServerConfig(data []byte) ([]*XDSServerConfig, error) {
 	var servers []*XDSServerConfig
 	if err := json.Unmarshal(data, &servers); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON to []*ServerConfig: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal ServerConfig: %s", err)
 	}
 	if len(servers) < 1 {
-		return nil, fmt.Errorf("no management server found in JSON")
+		return nil, fmt.Errorf("no xds server found in bootstrap")
 	}
 	return servers, nil
 }

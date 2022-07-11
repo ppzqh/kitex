@@ -23,14 +23,6 @@ func (sc *mockStreamClient) Recv() (*v3discovery.DiscoveryResponse, error) {
 	select {}
 }
 
-type mockResourceUpdater struct {
-	ResourceUpdater
-}
-func (m *mockResourceUpdater) UpdateListenerResource(map[string]*xdsresource.ListenerResource) {}
-func (m *mockResourceUpdater) UpdateRouteConfigResource(map[string]*xdsresource.RouteConfigResource) {}
-func (m *mockResourceUpdater) UpdateClusterResource(map[string]*xdsresource.ClusterResource)     {}
-func (m *mockResourceUpdater) UpdateEndpointsResource(map[string]*xdsresource.EndpointsResource) {}
-
 func Test_newXdsClient(t *testing.T) {
 	address := ":8888"
 	svr := mock.StartXDSServer(address)
@@ -52,7 +44,7 @@ func Test_newXdsClient(t *testing.T) {
 func Test_xdsClient_prepareRequest(t *testing.T) {
 	c := &xdsClient{
 		config: XdsBootstrapConfig,
-		subscribedResource: map[xdsresource.ResourceType]map[string]bool{
+		watchedResource: map[xdsresource.ResourceType]map[string]bool{
 			xdsresource.RouteConfigType: {},
 			xdsresource.ClusterType:     {"cluster1": true},
 		},
@@ -125,22 +117,27 @@ func Test_xdsClient_handleResponse(t *testing.T) {
 			Node:      NodeProto,
 			XdsSvrCfg: XdsServerConfig,
 		},
-		streamClient:       &mockStreamClient{},
-		subscribedResource: make(map[xdsresource.ResourceType]map[string]bool),
-		versionMap:         make(map[xdsresource.ResourceType]string),
-		nonceMap:           make(map[xdsresource.ResourceType]string),
-		resourceUpdater:    &mockResourceUpdater{},
-		refreshInterval:    defaultRefreshInterval,
+		streamClient:    &mockStreamClient{},
+		watchedResource: make(map[xdsresource.ResourceType]map[string]bool),
+		versionMap:      make(map[xdsresource.ResourceType]string),
+		nonceMap:        make(map[xdsresource.ResourceType]string),
+		resourceUpdater: &xdsResourceManager{
+			cache:       make(map[xdsresource.ResourceType]map[string]xdsresource.Resource),
+			meta:        make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta),
+			notifierMap: make(map[xdsresource.ResourceType]map[string][]*notifier),
+			dumpPath:    defaultDumpPath,
+		},
+		refreshInterval: defaultRefreshInterval,
 	}
 	// handle the response that includes resources that are not in the subscribed list
 	err := c.handleResponse(resource.LdsResp1)
 	test.Assert(t, err == nil)
-	test.Assert(t, c.versionMap[xdsresource.ListenerType] == resource.ListenerVersion)
-	test.Assert(t, c.nonceMap[xdsresource.ListenerType] == resource.ListenerNonce)
-	test.Assert(t, c.subscribedResource[xdsresource.RouteConfigType][resource.RouteConfigName] == false)
-	c.subscribedResource[xdsresource.ListenerType] = map[string]bool{
-		resource.ListenerName: true,
+	test.Assert(t, c.versionMap[xdsresource.ListenerType] == resource.LDSVersion1)
+	test.Assert(t, c.nonceMap[xdsresource.ListenerType] == resource.LDSNonce1)
+	test.Assert(t, c.watchedResource[xdsresource.RouteConfigType][resource.RouteConfigName1] == false)
+	c.watchedResource[xdsresource.ListenerType] = map[string]bool{
+		resource.ListenerName1: true,
 	}
 	err = c.handleResponse(resource.LdsResp1)
-	test.Assert(t, c.subscribedResource[xdsresource.RouteConfigType][resource.RouteConfigName] == true)
+	test.Assert(t, c.watchedResource[xdsresource.RouteConfigType][resource.RouteConfigName1] == true)
 }

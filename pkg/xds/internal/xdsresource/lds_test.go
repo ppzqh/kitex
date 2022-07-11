@@ -20,8 +20,8 @@ func TestUnmarshalLDSError(t *testing.T) {
 		{
 			name:         "resource is nil",
 			rawResources: nil,
-			want:         nil,
-			wantErr:      true,
+			want:         map[string]*ListenerResource{},
+			wantErr:      false,
 		},
 		{
 			name: "incorrect resource type url",
@@ -29,7 +29,7 @@ func TestUnmarshalLDSError(t *testing.T) {
 				{TypeUrl: EndpointTypeUrl, Value: []byte{}},
 			},
 			want:    map[string]*ListenerResource{},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -63,7 +63,6 @@ func TestUnmarshalLDSSuccess(t *testing.T) {
 					},
 				),
 			},
-
 		}),
 	}
 	res, err := UnmarshalLDS(rawResources)

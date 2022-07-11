@@ -55,9 +55,11 @@ func getRouteConfig(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route
 	if err != nil {
 		return nil, fmt.Errorf("get listener failed: %v", err)
 	}
-	listener, ok := lds.(*xdsresource.ListenerResource)
-	if !ok {
-		return nil, fmt.Errorf("wrong listener")
+	listener := lds.(*xdsresource.ListenerResource)
+
+	// inline route config
+	if listener.InlineRouteConfig != nil {
+		return listener.InlineRouteConfig, nil
 	}
 	// Get the route config
 	routeConfigName := listener.RouteConfigName
@@ -65,10 +67,7 @@ func getRouteConfig(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route
 	if err != nil {
 		return nil, fmt.Errorf("get route failed: %v", err)
 	}
-	routeConfig, ok := rds.(*xdsresource.RouteConfigResource)
-	if !ok {
-		return nil, fmt.Errorf("wrong route")
-	}
+	routeConfig := rds.(*xdsresource.RouteConfigResource)
 	return routeConfig, nil
 }
 

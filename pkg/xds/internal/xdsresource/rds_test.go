@@ -20,8 +20,8 @@ func TestUnmarshalRDSError(t *testing.T) {
 		{
 			name:         "resource is nil",
 			rawResources: nil,
-			want:         nil,
-			wantErr:      true,
+			want:         map[string]*RouteConfigResource{},
+			wantErr:      false,
 		},
 		{
 			name: "incorrect resource type url",
@@ -29,7 +29,7 @@ func TestUnmarshalRDSError(t *testing.T) {
 				{TypeUrl: EndpointTypeUrl, Value: []byte{}},
 			},
 			want:    map[string]*RouteConfigResource{},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {

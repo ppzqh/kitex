@@ -2,7 +2,6 @@ package xdsresource
 
 import (
 	"fmt"
-	"github.com/cloudwego/kitex/pkg/klog"
 	v3listenerpb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	v3httppb "github.com/cloudwego/kitex/pkg/xds/internal/api/github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/golang/protobuf/ptypes/any"
@@ -57,18 +56,20 @@ func unmarshallApiListener(apiListener *v3listenerpb.ApiListener) (*ListenerReso
 }
 
 func UnmarshalLDS(rawResources []*any.Any) (map[string]*ListenerResource, error) {
-	if rawResources == nil {
-		return nil, fmt.Errorf("empty listener resource")
-	}
 	ret := make(map[string]*ListenerResource, len(rawResources))
+	errMap := make(map[string]error)
+	var errSlice []error
+
 	for _, r := range rawResources {
 		if r.GetTypeUrl() != ListenerTypeUrl {
-			klog.Errorf("invalid listener resource type: %s\n", r.GetTypeUrl())
+			err := fmt.Errorf("invalid listener resource type: %s\n", r.GetTypeUrl())
+			errSlice = append(errSlice, err)
 			continue
 		}
 		lis := &v3listenerpb.Listener{}
 		if err := proto.Unmarshal(r.GetValue(), lis); err != nil {
-			klog.Errorf("unmarshal Listener failed, error=%s\n", err)
+			err = fmt.Errorf("unmarshal Listener failed, error=%s\n", err)
+			errSlice = append(errSlice, fmt.Errorf("unmarshal Listener failed, error=%s\n", err))
 			continue
 		}
 		ret[lis.Name] = &ListenerResource{}
@@ -76,12 +77,14 @@ func UnmarshalLDS(rawResources []*any.Any) (map[string]*ListenerResource, error)
 		if apiListener := lis.GetApiListener(); apiListener != nil {
 			res, err := unmarshallApiListener(apiListener)
 			if err != nil {
-				klog.Errorf("unmarshal listener %s failed: %s\n", lis.GetName(), err)
+				errMap[lis.Name] = err
 				continue
 			}
 			ret[lis.Name] = res
 		}
 	}
-
-	return ret, nil
+	if len(errMap) == 0  && len(errSlice) == 0 {
+		return ret, nil
+	}
+	return ret, processUnmarshalErrors(errSlice, errMap)
 }
