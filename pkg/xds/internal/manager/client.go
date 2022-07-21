@@ -32,7 +32,7 @@ type xdsClient struct {
 	// clusterIPMap is the map from short listenerName to clusterIP.
 	// "kitex-server.default.svc.cluster.local:80" -> "10.0.0.1_80"
 	clusterIPMap map[string]string
-	dnsResolver  *clusterIPResolver
+	cipResolver  *clusterIPResolver
 
 	// versionMap stores the versions of different resource type.
 	versionMap map[xdsresource.ResourceType]string
@@ -100,7 +100,7 @@ func newXdsClient(bCfg *BootstrapConfig, updater *xdsResourceManager) (*xdsClien
 		streamClient:    sc,
 		watchedResource: make(map[xdsresource.ResourceType]map[string]bool),
 		clusterIPMap:    make(map[string]string),
-		dnsResolver:     newClusterIPResolver(),
+		cipResolver:     newClusterIPResolver(),
 		versionMap:      make(map[xdsresource.ResourceType]string),
 		nonceMap:        make(map[xdsresource.ResourceType]string),
 		resourceUpdater: updater,
@@ -284,7 +284,7 @@ func (c *xdsClient) getClusterIP(rName string) (string, error) {
 		return "", fmt.Errorf("invalid listener name: %s", rName)
 	}
 	addr, port := tmp[0], tmp[1]
-	cip, err := c.dnsResolver.lookupHost(addr)
+	cip, err := c.cipResolver.lookupHost(addr)
 	if err == nil && len(cip) > 0 {
 		clusterIPPort := cip[0] + "_" + port
 		return clusterIPPort, nil
