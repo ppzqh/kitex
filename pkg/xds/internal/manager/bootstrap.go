@@ -11,7 +11,13 @@ import (
 	"strings"
 )
 
-var XDSBootstrapFileNameEnv = "GRPC_XDS_BOOTSTRAP"
+var (
+	XDSBootstrapFileNameEnv = "GRPC_XDS_BOOTSTRAP"
+	POD_NAMESPACE           = "POD_NAMESPACE"
+	POD_NAME                = "POD_NAME"
+	INSTANCE_IP             = "INSTANCE_IP"
+	XDSPROXY_PATH           = "/etc/istio/proxy/XDS"
+)
 
 type BootstrapConfig struct {
 	node      *v3core.Node
@@ -35,13 +41,35 @@ type channelCreds struct {
 
 // newBootstrapConfig constructs the bootstrapConfig
 func newBootstrapConfig() (*BootstrapConfig, error) {
-	XDSBootstrapFileName := os.Getenv(XDSBootstrapFileNameEnv)
-	bootstrapConfig, err := readBootstrap(XDSBootstrapFileName)
-	if err != nil {
-		return nil, err
+	//XDSBootstrapFileName := os.Getenv(XDSBootstrapFileNameEnv)
+	//bootstrapConfig, err := readBootstrap(XDSBootstrapFileName)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//processServerAddress(bootstrapConfig)
+	//return bootstrapConfig, nil
+
+	namespace := os.Getenv(POD_NAMESPACE)
+	if namespace == "" {
+		return nil, fmt.Errorf("[XDS] Bootstrap, POD_NAMESPACE is not set in env")
 	}
-	processServerAddress(bootstrapConfig)
-	return bootstrapConfig, nil
+	podName := os.Getenv(POD_NAME)
+	if podName == "" {
+		return nil, fmt.Errorf("[XDS] Bootstrap, POD_NAME is not set in env")
+	}
+	podIp := os.Getenv(INSTANCE_IP)
+	if podIp == "" {
+		return nil, fmt.Errorf("[XDS] Bootstrap, INSTANCE_IP is not set in env")
+	}
+
+	return &BootstrapConfig{
+		node: &v3core.Node{
+			Id: "sidecar~" + podIp + "~" + podName + "." + namespace + "~" + namespace + ".svc.cluster.local",
+		},
+		xdsSvrCfg: &XDSServerConfig{
+			serverAddress: XDSPROXY_PATH, // must be the uds path of xds proxy
+		},
+	}, nil
 }
 
 // UnmarshalJSON unmarshal the json data into the struct.

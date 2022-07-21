@@ -67,9 +67,15 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	}
 
 	m.client = cli
+	// init request to activate dns proxy
+	m.initRequest()
 	// start the cache cleaner
 	go m.cleaner()
 	return m, nil
+}
+
+func (m *xdsResourceManager) initRequest() {
+	m.client.initRequest()
 }
 
 // getFromCache returns the resource from cache and update the access time in the meta

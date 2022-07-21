@@ -10,13 +10,13 @@ import (
 	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3/aggregateddiscoveryservice"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"google.golang.org/genproto/googleapis/rpc/status"
+	"net"
+	"strings"
 	"sync"
 	"time"
 )
 
-type StreamClient interface {
-	aggregateddiscoveryservice.AggregatedDiscoveryService_StreamAggregatedResourcesClient
-}
+type StreamClient = aggregateddiscoveryservice.AggregatedDiscoveryService_StreamAggregatedResourcesClient
 
 // xdsClient communicates with the control plane to perform xds resource discovery.
 // It maintains the connection and all the resources being watched.
@@ -24,10 +24,16 @@ type StreamClient interface {
 type xdsClient struct {
 	// config is the bootstrap config read from the config file.
 	config *BootstrapConfig
-	mu     sync.RWMutex
+
 	// watchedResource is the map of resources that are watched by the client.
 	// every discovery request will contain all the resources of one type in the map.
 	watchedResource map[xdsresource.ResourceType]map[string]bool
+
+	// clusterIPMap is the map from short listenerName to clusterIP.
+	// "kitex-server.default.svc.cluster.local:80" -> "10.0.0.1_80"
+	clusterIPMap map[string]string
+	dnsResolver  *clusterIPResolver
+
 	// versionMap stores the versions of different resource type.
 	versionMap map[xdsresource.ResourceType]string
 	// nonceMap stores the nonce of the recent response.
@@ -41,8 +47,34 @@ type xdsClient struct {
 
 	// refreshInterval is the interval of refreshing the resources.
 	refreshInterval time.Duration
+
 	// channel for stop
 	closeCh chan struct{}
+
+	mu sync.RWMutex
+}
+
+type clusterIPResolver struct {
+	resolver *net.Resolver
+	mu       sync.Mutex
+}
+
+func newClusterIPResolver() *clusterIPResolver {
+	r := &net.Resolver{
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.DialTimeout("tcp", defaultDNSProxyAddress, defaultDNSTimeout)
+		},
+	}
+	return &clusterIPResolver{
+		resolver: r,
+		mu:       sync.Mutex{},
+	}
+}
+
+func (r *clusterIPResolver) lookupHost(host string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.resolver.LookupHost(context.Background(), host)
 }
 
 // newStreamClient constructs a new stream client that communicates with the xds server
@@ -67,6 +99,8 @@ func newXdsClient(bCfg *BootstrapConfig, updater *xdsResourceManager) (*xdsClien
 		config:          bCfg,
 		streamClient:    sc,
 		watchedResource: make(map[xdsresource.ResourceType]map[string]bool),
+		clusterIPMap:    make(map[string]string),
+		dnsResolver:     newClusterIPResolver(),
 		versionMap:      make(map[xdsresource.ResourceType]string),
 		nonceMap:        make(map[xdsresource.ResourceType]string),
 		resourceUpdater: updater,
@@ -129,7 +163,7 @@ func (c *xdsClient) sender() {
 				klog.Infof("[XDS] client: stop ads client sender")
 				return
 			case <-timer.C:
-				c.refresh()
+				//c.refresh()
 				timer.Reset(c.refreshInterval)
 			}
 		}
@@ -240,29 +274,64 @@ func (c *xdsClient) updateAndACK(rType xdsresource.ResourceType, nonce, version 
 	c.sendRequest(rType, true, errMsg)
 }
 
+func (c *xdsClient) initRequest() {
+	c.sendRequest(xdsresource.ListenerType, false, "")
+}
+
+func (c *xdsClient) getClusterIP(rName string) (string, error) {
+	tmp := strings.Split(rName, ":")
+	if len(tmp) < 2 {
+		return "", fmt.Errorf("invalid listener name: %s", rName)
+	}
+	addr, port := tmp[0], tmp[1]
+	cip, err := c.dnsResolver.lookupHost(addr)
+	if err == nil && len(cip) > 0 {
+		clusterIPPort := cip[0] + "_" + port
+		return clusterIPPort, nil
+	}
+	return "", err
+}
+
 // handleResponse handles the lds response
 func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalLDS(resp.GetResources())
+	filteredRes := make(map[string]*xdsresource.ListenerResource)
+	// returned listener name is in the format of [clusterIP_Port]
+	// convert the listener to local format.
+	for n := range c.watchedResource[xdsresource.ListenerType] {
+		cip, ok := c.clusterIPMap[n]
+		if !ok {
+			cip, err = c.getClusterIP(n)
+			if err != nil || cip == "" {
+				klog.Warnf("[XDS] client, get cluster ip of resource[%s] failed, error=%s", n, err)
+				continue
+			}
+			c.clusterIPMap[n] = cip
+		}
+		if ln, ok := res[cip]; ok {
+			filteredRes[n] = ln
+		}
+	}
 	c.updateAndACK(xdsresource.ListenerType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
 		return err
 	}
 
-	c.mu.Lock()
-	for name, v := range res {
-		if _, ok := c.watchedResource[xdsresource.ListenerType][name]; !ok {
-			delete(res, name)
-			continue
-		}
-		// subscribe the routeConfig name
-		if _, ok := c.watchedResource[xdsresource.RouteConfigType]; !ok {
-			c.watchedResource[xdsresource.RouteConfigType] = make(map[string]bool)
-		}
-		c.watchedResource[xdsresource.RouteConfigType][v.RouteConfigName] = true
-	}
-	c.mu.Unlock()
+	//c.mu.Lock()
+	//for name, v := range res {
+	//	if _, ok := c.watchedResource[xdsresource.ListenerType][name]; !ok {
+	//		delete(res, name)
+	//		continue
+	//	}
+	//	// subscribe the routeConfig name
+	//	if _, ok := c.watchedResource[xdsresource.RouteConfigType]; !ok {
+	//		c.watchedResource[xdsresource.RouteConfigType] = make(map[string]bool)
+	//	}
+	//	c.watchedResource[xdsresource.RouteConfigType][v.RouteConfigName] = true
+	//}
+	//c.mu.Unlock()
 	// update to cache
-	c.resourceUpdater.UpdateListenerResource(res, resp.GetVersionInfo())
+	c.resourceUpdater.UpdateListenerResource(filteredRes, resp.GetVersionInfo())
 	return nil
 }
 
