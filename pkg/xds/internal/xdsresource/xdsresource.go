@@ -23,14 +23,15 @@ const (
 // Resource types in xDS v3.
 const (
 	apiTypePrefix          = "type.googleapis.com/"
-	EndpointTypeUrl        = apiTypePrefix + "envoy.config.endpoint.v3.ClusterLoadAssignment"
-	ClusterTypeUrl         = apiTypePrefix + "envoy.config.cluster.v3.Cluster"
-	RouteTypeUrl           = apiTypePrefix + "envoy.config.route.v3.RouteConfiguration"
 	ListenerTypeUrl        = apiTypePrefix + "envoy.config.listener.v3.Listener"
+	RouteTypeUrl           = apiTypePrefix + "envoy.config.route.v3.RouteConfiguration"
+	ClusterTypeUrl         = apiTypePrefix + "envoy.config.cluster.v3.Cluster"
+	EndpointTypeUrl        = apiTypePrefix + "envoy.config.endpoint.v3.ClusterLoadAssignment"
 	SecretTypeUrl          = apiTypePrefix + "envoy.extensions.transport_sockets.tls.v3.Secret"
 	ExtensionConfigTypeUrl = apiTypePrefix + "envoy.config.core.v3.TypedExtensionConfig"
 	RuntimeTypeUrl         = apiTypePrefix + "envoy.service.runtime.v3.Runtime"
 	HTTPConnManagerTypeUrl = apiTypePrefix + "envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
+	ThriftProxyTypeUrl     = apiTypePrefix + "envoy.extensions.filters.network.thrift_proxy.v3.ThriftProxy"
 	// AnyType is used only by ADS
 	AnyType = ""
 )

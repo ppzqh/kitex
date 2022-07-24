@@ -169,7 +169,7 @@ func Test_xdsResourceManager_Get_Resource_Update(t *testing.T) {
 	test.Assert(t, err == nil)
 	test.Assert(t, res != nil)
 	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName1] != nil)
-	test.Assert(t, res.(*xdsresource.ListenerResource).RouteConfigName == resource.RouteConfigName1)
+	test.Assert(t, res.(*xdsresource.ListenerResource).NetworkFilters[0].RouteConfigName == resource.RouteConfigName1)
 	// push the new resource and check if the resourceManager can update the resource
 	svr.PushResourceUpdate(resource.LdsResp2)
 	time.Sleep(time.Millisecond * 100)

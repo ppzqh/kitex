@@ -4,13 +4,27 @@ import (
 	"encoding/json"
 	"fmt"
 	v3routepb "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	matcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/proto"
 	"time"
 )
 
+// RouteConfigResource is used for routing
+// HttpRouteConfig is the native http route config, which consists of a list of virtual hosts.
+// ThriftRouteConfig is converted from the routeConfiguration in thrift proxy, which can only be configured in the listener filter
+// For details of thrift_proxy, please refer to: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/thrift_proxy/v3/route.proto#envoy-v3-api-msg-extensions-filters-network-thrift-proxy-v3-routeconfiguration
 type RouteConfigResource struct {
+	HttpRouteConfig   *HTTPRouteConfig
+	ThriftRouteConfig *ThriftRouteConfig
+}
+
+type HTTPRouteConfig struct {
 	VirtualHosts []*VirtualHost
+}
+
+type ThriftRouteConfig struct {
+	Routes []*Route
 }
 
 type VirtualHost struct {
@@ -24,28 +38,56 @@ type WeightedCluster struct {
 }
 
 type Route struct {
-	Match            *RouteMatch
+	Match            RouteMatch
 	WeightedClusters []*WeightedCluster
 	Timeout          time.Duration
 }
 
-type RouteMatch struct {
-	Path   string
-	Prefix string
+type RouteMatch interface {
+	MatchPath(path string) bool
+	GetTags() map[string]string
 }
 
-func (rm *RouteMatch) Matched(path string, tags map[string]string) bool {
+type HTTPRouteMatch struct {
+	Path   string
+	Prefix string
+	Tags   map[string]string
+}
+
+type ThriftRouteMatch struct {
+	Method      string
+	ServiceName string
+	Tags        map[string]string
+}
+
+func (tm *ThriftRouteMatch) MatchPath(path string) bool {
+	if tm.Method != "" && tm.Method != path {
+		return false
+	}
+	return true
+}
+
+func (tm *ThriftRouteMatch) GetTags() map[string]string {
+	return tm.Tags
+}
+
+func (rm *HTTPRouteMatch) MatchPath(path string) bool {
 	if rm.Path != "" {
 		return rm.Path == path
 	}
+	// default prefix
 	return rm.Prefix == "/"
+}
+
+func (rm *HTTPRouteMatch) GetTags() map[string]string {
+	return rm.Tags
 }
 
 func (r *Route) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
-		Match            *RouteMatch        `json:"Name"`
+		Match            RouteMatch         `json:"Match"`
 		WeightedClusters []*WeightedCluster `json:"WeightedClusters"`
-		Timeout          string            `json:"Timeout"`
+		Timeout          string             `json:"Timeout"`
 	}{
 		Match:            r.Match,
 		WeightedClusters: r.WeightedClusters,
@@ -55,13 +97,14 @@ func (r *Route) MarshalJSON() ([]byte, error) {
 
 func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 	routes := make([]*Route, len(rs))
-	for i := 0; i < len(rs); i++ {
+	for i, r := range rs {
 		route := &Route{}
-		routeMatch := &RouteMatch{}
-		match := rs[i].GetMatch()
+		routeMatch := &HTTPRouteMatch{}
+		match := r.GetMatch()
 		if match == nil {
-			return nil, fmt.Errorf("no match in route %s\n", rs[i].GetName())
+			return nil, fmt.Errorf("no match in route %s\n", r.GetName())
 		}
+		// path match
 		pathSpecifier := match.GetPathSpecifier()
 		// only support exact match for path
 		switch p := pathSpecifier.(type) {
@@ -73,11 +116,31 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 			//default:
 			//	return nil, fmt.Errorf("only support path match")
 		}
+		// header match
+		tags := make(map[string]string)
+		if hs := match.GetHeaders(); hs != nil {
+			for _, h := range hs {
+				var v string
+				switch hm := h.GetHeaderMatchSpecifier().(type) {
+				case *v3routepb.HeaderMatcher_StringMatch:
+					switch p := hm.StringMatch.GetMatchPattern().(type) {
+					case *matcherv3.StringMatcher_Exact:
+						v = p.Exact
+					}
+				case *v3routepb.HeaderMatcher_ExactMatch:
+					v = hm.ExactMatch
+				}
+				if v != "" {
+					tags[h.Name] = v
+				}
+			}
+		}
+		routeMatch.Tags = tags
 		route.Match = routeMatch
 		// action
-		action := rs[i].GetAction()
+		action := r.GetAction()
 		if action == nil {
-			return nil, fmt.Errorf("no action in route %s\n", rs[i].GetName())
+			return nil, fmt.Errorf("no action in route %s\n", r.GetName())
 		}
 		switch a := action.(type) {
 		case *v3routepb.Route_Route:
@@ -89,8 +152,8 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 			case *v3routepb.RouteAction_WeightedClusters:
 				wcs := cs.WeightedClusters
 				clusters := make([]*WeightedCluster, len(wcs.Clusters))
-				for i, wc := range wcs.GetClusters() {
-					clusters[i] = &WeightedCluster{
+				for j, wc := range wcs.GetClusters() {
+					clusters[j] = &WeightedCluster{
 						Name:   wc.GetName(),
 						Weight: wc.GetWeight().GetValue(),
 					}
@@ -104,6 +167,7 @@ func unmarshalRoutes(rs []*v3routepb.Route) ([]*Route, error) {
 	return routes, nil
 }
 
+// unmarshalRouteConfig unmarshalls the RouteConfigResource, which only support HTTP route.
 func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) (*RouteConfigResource, error) {
 	vhs := routeConfig.GetVirtualHosts()
 	virtualHosts := make([]*VirtualHost, len(vhs))
@@ -120,7 +184,7 @@ func unmarshalRouteConfig(routeConfig *v3routepb.RouteConfiguration) (*RouteConf
 		virtualHosts[i] = virtualHost
 	}
 	return &RouteConfigResource{
-		VirtualHosts: virtualHosts,
+		HttpRouteConfig: &HTTPRouteConfig{virtualHosts},
 	}, nil
 }
 

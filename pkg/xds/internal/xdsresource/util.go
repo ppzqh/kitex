@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-func processUnmarshalErrors(errSlice []error, errMap map[string]error) error {
+func processUnmarshalErrors(errs []error, errMap map[string]error) error {
 	var b strings.Builder
-	for _, err := range errSlice {
+	for _, err := range errs {
 		b.WriteString(err.Error())
 		b.WriteString("\n")
 	}
@@ -19,5 +19,17 @@ func processUnmarshalErrors(errSlice []error, errMap map[string]error) error {
 		}
 	}
 
+	return fmt.Errorf(b.String())
+}
+
+func combineErrors(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	for _, err := range errs {
+		b.WriteString(err.Error())
+		b.WriteString("\n")
+	}
 	return fmt.Errorf(b.String())
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
+	"github.com/cloudwego/kitex/transport"
 	"math/rand"
 	"time"
 )
@@ -15,6 +16,7 @@ const (
 	defaultTotalWeight int32 = 100
 )
 
+// RouteResult stores the result of route
 type RouteResult struct {
 	RPCTimeout    time.Duration
 	ClusterPicked string
@@ -23,77 +25,150 @@ type RouteResult struct {
 
 type XDSRouter struct{}
 
+// Route routes the rpc call to a cluster based on the RPCInfo
 func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult, error) {
-	routeConfig, err := getRouteConfig(ctx, ri)
-	if err != nil {
-		return nil, err
-	}
+	//rc, err := getRouteConfig(ctx, ri)
+	//if err != nil {
+	//	return nil, kerrors.ErrXDSRoute.WithCause(err)
+	//}
+	//matchedRoute := matchRoute(ri, rc)
 
-	matchedRoute := matchRoute(ri, routeConfig)
+	route, err := getRoute(ctx, ri)
 	// no matched route
-	if matchedRoute == nil {
-		return nil, kerrors.ErrRoute
+	if err != nil {
+		return nil, kerrors.ErrXDSRoute.WithCause(fmt.Errorf("no matched route for service %s", ri.To().ServiceName()))
 	}
-	cluster := selectCluster(matchedRoute)
+	// pick cluster from the matched route
+	cluster := pickCluster(route)
 	if cluster == "" {
-		return nil, fmt.Errorf("no cluster selected")
+		return nil, kerrors.ErrXDSRoute.WithCause(fmt.Errorf("no cluster selected"))
 	}
 	return &RouteResult{
-		RPCTimeout:    matchedRoute.Timeout,
+		RPCTimeout:    route.Timeout,
 		ClusterPicked: cluster,
 	}, nil
 }
 
 // getRouteConfig gets the route config from xdsResourceManager
-func getRouteConfig(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.RouteConfigResource, error) {
+func getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, error) {
 	m, err := getXdsResourceManager()
 	if err != nil {
 		return nil, err
 	}
-	listenerName := ri.To().ServiceName()
-	lds, err := m.Get(ctx, xdsresource.ListenerType, listenerName)
+	// use serviceName as the listener name
+	ln := ri.To().ServiceName()
+	lds, err := m.Get(ctx, xdsresource.ListenerType, ln)
 	if err != nil {
 		return nil, fmt.Errorf("get listener failed: %v", err)
 	}
-	listener := lds.(*xdsresource.ListenerResource)
+	lis := lds.(*xdsresource.ListenerResource)
 
-	// inline route config
-	if listener.InlineRouteConfig != nil {
-		return listener.InlineRouteConfig, nil
-	}
-	// Get the route config
-	routeConfigName := listener.RouteConfigName
-	rds, err := m.Get(ctx, xdsresource.RouteConfigType, routeConfigName)
-	if err != nil {
-		return nil, fmt.Errorf("get route failed: %v", err)
-	}
-	routeConfig := rds.(*xdsresource.RouteConfigResource)
-	return routeConfig, nil
-}
-
-// matchRoute matchs one route in the provided routeConfig based on information in RPCInfo
-func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
-	path := ri.To().Method()
-	toService := ri.To().ServiceName()
-	var matchedRoute *xdsresource.Route
-	for _, vh := range routeConfig.VirtualHosts {
-		if vh.Name != toService {
-			continue
+	var thrift, http *xdsresource.NetworkFilter
+	for _, f := range lis.NetworkFilters {
+		if f.FilterType == xdsresource.NetworkFilterTypeHTTP {
+			http = f
 		}
-		// match the first route
-		for _, r := range vh.Routes {
-			match := r.Match
-			if match.Matched(path, nil) {
-				matchedRoute = r
-				break
+		if f.FilterType == xdsresource.NetworkFilterTypeThrift {
+			thrift = f
+		}
+	}
+	// match thrift route first, only inline route is supported
+	if ri.Config().TransportProtocol() != transport.GRPC {
+		if thrift != nil && thrift.InlineRouteConfig != nil {
+			r := matchThriftRoute(ri, thrift.InlineRouteConfig)
+			if r != nil {
+				return r, nil
 			}
 		}
 	}
-	return matchedRoute
+	if http == nil {
+		return nil, fmt.Errorf("no http filter found in listener %s", ln)
+	}
+	// inline route config
+	if http.InlineRouteConfig != nil {
+		r := matchHTTPRoute(ri, http.InlineRouteConfig)
+		if r != nil {
+			return r, nil
+		}
+	}
+	// Get the route config
+	rds, err := m.Get(ctx, xdsresource.RouteConfigType, http.RouteConfigName)
+	if err != nil {
+		return nil, fmt.Errorf("get route failed: %v", err)
+	}
+	rcfg := rds.(*xdsresource.RouteConfigResource)
+	r := matchHTTPRoute(ri, rcfg)
+	if r != nil {
+		return r, nil
+	}
+	return nil, fmt.Errorf("no matched route")
 }
 
-// selectCluster selects cluster based on the weight
-func selectCluster(route *xdsresource.Route) string {
+// matchRoute matches one route in the provided routeConfig based on information in RPCInfo
+func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
+	// If using GRPC, match the HTTP route
+	if ri.Config().TransportProtocol() == transport.GRPC {
+		return matchHTTPRoute(ri, routeConfig)
+	}
+	// Or, match thrift route first
+	r := matchThriftRoute(ri, routeConfig)
+	if r != nil {
+		return r
+	}
+	// fallback to http route if thrift route is not configured
+	return matchHTTPRoute(ri, routeConfig)
+}
+
+// matchHTTPRoute matches one http route
+func matchHTTPRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
+	if rcfg := routeConfig.HttpRouteConfig; rcfg != nil {
+		for _, vh := range rcfg.VirtualHosts {
+			// skip the domain match
+
+			// use the first matched route
+			for _, r := range vh.Routes {
+				if routeMatched(ri.To(), r) {
+					return r
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// matchThriftRoute matches one thrift route
+func matchThriftRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
+	if rcfg := routeConfig.ThriftRouteConfig; rcfg != nil {
+		for _, r := range rcfg.Routes {
+			if routeMatched(ri.To(), r) {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+// routeMatched checks if the route matches the info provided in the RPCInfo
+func routeMatched(to rpcinfo.EndpointInfo, r *xdsresource.Route) bool {
+	method := to.Method()
+	if r.Match != nil && r.Match.MatchPath(method) {
+		//return r
+		tagMatched := true
+		for mk, mv := range r.Match.GetTags() {
+			if v, ok := to.Tag(mk); !ok || v != mv {
+				tagMatched = false
+				break
+			}
+		}
+		if tagMatched {
+			return true
+		}
+	}
+	return false
+}
+
+// pickCluster selects cluster based on the weight
+func pickCluster(route *xdsresource.Route) string {
 	// handle weighted cluster
 	wcs := route.WeightedClusters
 	if len(wcs) == 0 {

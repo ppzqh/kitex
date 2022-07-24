@@ -85,7 +85,7 @@ func newXDSRouterMWBuilder() endpoint.MiddlewareBuilder {
 				}
 				res, err := router.Route(ctx, ri)
 				if err != nil {
-					klog.Error("[xds] route error: %s", err)
+					klog.Errorf("[XDS] Router, route failed, error=%s", err)
 					return err
 				}
 				// set destination

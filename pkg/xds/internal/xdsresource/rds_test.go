@@ -98,11 +98,11 @@ func TestUnmarshalRDSSuccess(t *testing.T) {
 	test.Assert(t, len(got) == 1)
 	routeConfig := got[routeConfigName]
 	test.Assert(t, routeConfig != nil)
-	test.Assert(t, len(routeConfig.VirtualHosts) == 1)
-	vh := routeConfig.VirtualHosts[0]
+	test.Assert(t, len(routeConfig.HttpRouteConfig.VirtualHosts) == 1)
+	vh := routeConfig.HttpRouteConfig.VirtualHosts[0]
 	test.Assert(t, vh.Name == vhName)
 	test.Assert(t, vh.Routes != nil)
-	test.Assert(t, vh.Routes[0].Match.Path == path)
+	test.Assert(t, vh.Routes[0].Match.MatchPath(path) == true)
 	wcs := vh.Routes[0].WeightedClusters
 	test.Assert(t, wcs != nil)
 	test.Assert(t, len(wcs) == 2)
@@ -110,14 +110,14 @@ func TestUnmarshalRDSSuccess(t *testing.T) {
 	test.Assert(t, wcs[1].Weight == 50)
 }
 
-func TestRouteMatch_Matched(t *testing.T) {
+func TestHTTPRouteMatch_MatchPath(t *testing.T) {
 	type fields struct {
 		Path   string
 		Prefix string
+		Tags   map[string]string
 	}
 	type args struct {
 		path string
-		tags map[string]string
 	}
 	tests := []struct {
 		name   string
@@ -133,9 +133,8 @@ func TestRouteMatch_Matched(t *testing.T) {
 			},
 			args: args{
 				path: "",
-				tags: map[string]string{},
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "empty route, non-empty input path",
@@ -144,10 +143,9 @@ func TestRouteMatch_Matched(t *testing.T) {
 				Prefix: "/",
 			},
 			args: args{
-				path: "p1",
-				tags: map[string]string{},
+				path: "p",
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "matched route path",
@@ -156,7 +154,6 @@ func TestRouteMatch_Matched(t *testing.T) {
 			},
 			args: args{
 				path: "p1",
-				tags: map[string]string{},
 			},
 			want: true,
 		},
@@ -167,18 +164,19 @@ func TestRouteMatch_Matched(t *testing.T) {
 			},
 			args: args{
 				path: "p1",
-				tags: map[string]string{},
 			},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rm := &RouteMatch{
-				Path: tt.fields.Path,
+			rm := &HTTPRouteMatch{
+				Path:   tt.fields.Path,
+				Prefix: tt.fields.Prefix,
+				Tags:   tt.fields.Tags,
 			}
-			if got := rm.Matched(tt.args.path, tt.args.tags); got != tt.want {
-				t.Errorf("Matched() = %v, want %v", got, tt.want)
+			if got := rm.MatchPath(tt.args.path); got != tt.want {
+				t.Errorf("MatchPath() = %v, want %v", got, tt.want)
 			}
 		})
 	}

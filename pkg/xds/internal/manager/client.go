@@ -29,9 +29,10 @@ type xdsClient struct {
 	// every discovery request will contain all the resources of one type in the map.
 	watchedResource map[xdsresource.ResourceType]map[string]bool
 
-	// clusterIPMap is the map from short listenerName to clusterIP.
+	// clusterIPMap is the map from short listenerName (we use fqdn for listener name) to clusterIP.
 	// "kitex-server.default.svc.cluster.local:80" -> "10.0.0.1_80"
 	clusterIPMap map[string]string
+	// cipResolver is used to resolve the clusterIP.
 	cipResolver  *clusterIPResolver
 
 	// versionMap stores the versions of different resource type.
@@ -83,6 +84,7 @@ func newStreamClient(addr string) (StreamClient, error) {
 	if err != nil {
 		panic(err)
 	}
+	// TODO: reconstruct the stream when error happens in send() or recv()
 	sc, err := cli.StreamAggregatedResources(context.Background())
 	return sc, err
 }
@@ -191,6 +193,10 @@ func (c *xdsClient) receiver() {
 			resp, err := c.recv()
 			if err != nil {
 				klog.Errorf("[XDS] client, receive failed, error=%s", err)
+				// TODO: reconnect?
+				if err != nil {
+				}
+				continue
 			}
 			err = c.handleResponse(resp)
 			if err != nil {
@@ -344,27 +350,27 @@ func (c *xdsClient) handleRDS(resp *discoveryv3.DiscoveryResponse) error {
 	}
 
 	// prepare CDS request
-	c.mu.Lock()
-	for name, rcfg := range res {
-		// only accept the routeConfig that is subscribed
-		if _, ok := c.watchedResource[xdsresource.RouteConfigType][name]; !ok {
-			delete(res, name)
-			continue
-		}
-
-		// subscribe cluster name
-		for _, vh := range rcfg.VirtualHosts {
-			for _, r := range vh.Routes {
-				for _, wc := range r.WeightedClusters {
-					if _, ok := c.watchedResource[xdsresource.ClusterType]; !ok {
-						c.watchedResource[xdsresource.ClusterType] = make(map[string]bool)
-					}
-					c.watchedResource[xdsresource.ClusterType][wc.Name] = true
-				}
-			}
-		}
-	}
-	c.mu.Unlock()
+	//c.mu.Lock()
+	//for name, rcfg := range res {
+	//	// only accept the routeConfig that is subscribed
+	//	if _, ok := c.watchedResource[xdsresource.RouteConfigType][name]; !ok {
+	//		delete(res, name)
+	//		continue
+	//	}
+	//
+	//	// subscribe cluster name
+	//	for _, vh := range rcfg.VirtualHosts {
+	//		for _, r := range vh.Routes {
+	//			for _, wc := range r.WeightedClusters {
+	//				if _, ok := c.watchedResource[xdsresource.ClusterType]; !ok {
+	//					c.watchedResource[xdsresource.ClusterType] = make(map[string]bool)
+	//				}
+	//				c.watchedResource[xdsresource.ClusterType][wc.Name] = true
+	//			}
+	//		}
+	//	}
+	//}
+	//c.mu.Unlock()
 	// update to cache
 	c.resourceUpdater.UpdateRouteConfigResource(res, resp.GetVersionInfo())
 	return nil
@@ -452,7 +458,7 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	return err
 }
 
-// prepare new request and send to the channel
+// prepareRequest prepares a new request for the specified resource type
 // ResourceNames should include all the subscribed resources of the specified type
 func (c *xdsClient) prepareRequest(rType xdsresource.ResourceType, ack bool, errMsg string) *discoveryv3.DiscoveryRequest {
 	c.mu.RLock()

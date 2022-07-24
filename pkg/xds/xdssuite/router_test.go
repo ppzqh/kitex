@@ -13,12 +13,12 @@ var (
 	clusterName1 = "cluster1"
 	clusterName2 = "cluster2"
 	route0       = &xdsresource.Route{
-		Match: &xdsresource.RouteMatch{
+		Match: &xdsresource.HTTPRouteMatch{
 			Prefix: "/p",
 		},
 	}
 	route1 = &xdsresource.Route{
-		Match: &xdsresource.RouteMatch{
+		Match: &xdsresource.HTTPRouteMatch{
 			Prefix: "/",
 		},
 		WeightedClusters: []*xdsresource.WeightedCluster{
@@ -30,7 +30,7 @@ var (
 		Timeout: 0,
 	}
 	route2 = &xdsresource.Route{
-		Match: &xdsresource.RouteMatch{
+		Match: &xdsresource.HTTPRouteMatch{
 			Path: method,
 		},
 		WeightedClusters: []*xdsresource.WeightedCluster{

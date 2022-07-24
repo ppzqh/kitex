@@ -11,7 +11,7 @@ import (
 type ClusterDiscoveryType int
 
 const (
-	ClusterDiscoveryTypeEDS = iota
+	ClusterDiscoveryTypeEDS ClusterDiscoveryType = iota
 	ClusterDiscoveryTypeLogicalDNS
 	ClusterDiscoveryTypeStatic
 )
