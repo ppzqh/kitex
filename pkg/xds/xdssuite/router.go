@@ -51,6 +51,9 @@ func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult
 
 // getRouteConfig gets the route config from xdsResourceManager
 func getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, error) {
+	// TODO: 拼接 ri.Invocation().ServiceName()
+
+	ri.To().ServiceName()
 	m, err := getXdsResourceManager()
 	if err != nil {
 		return nil, err

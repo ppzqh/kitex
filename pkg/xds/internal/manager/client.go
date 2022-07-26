@@ -10,13 +10,13 @@ import (
 	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3/aggregateddiscoveryservice"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"google.golang.org/genproto/googleapis/rpc/status"
-	"net"
 	"strings"
 	"sync"
 	"time"
 )
 
-type StreamClient = aggregateddiscoveryservice.AggregatedDiscoveryService_StreamAggregatedResourcesClient
+type ADSClient = aggregateddiscoveryservice.Client
+type ADSStream = aggregateddiscoveryservice.AggregatedDiscoveryService_StreamAggregatedResourcesClient
 
 // xdsClient communicates with the control plane to perform xds resource discovery.
 // It maintains the connection and all the resources being watched.
@@ -29,18 +29,19 @@ type xdsClient struct {
 	// every discovery request will contain all the resources of one type in the map.
 	watchedResource map[xdsresource.ResourceType]map[string]bool
 
-	// clusterIPMap is the map from short listenerName (we use fqdn for listener name) to clusterIP.
-	// "kitex-server.default.svc.cluster.local:80" -> "10.0.0.1_80"
-	clusterIPMap map[string]string
 	// cipResolver is used to resolve the clusterIP.
-	cipResolver  *clusterIPResolver
+	// listenerName (we use fqdn for listener name) to clusterIP.
+	// "kitex-server.default.svc.cluster.local" -> "10.0.0.1"
+	cipResolver ClusterIPResolver
 
 	// versionMap stores the versions of different resource type.
 	versionMap map[xdsresource.ResourceType]string
 	// nonceMap stores the nonce of the recent response.
 	nonceMap map[xdsresource.ResourceType]string
 
-	streamClient     StreamClient
+	// adsClient is a kitex client using grpc protocol that can communicate with xds server.
+	adsClient        ADSClient
+	adsStream        ADSStream
 	streamClientLock sync.Mutex
 
 	// resourceUpdater is used to update the resource update to the cache.
@@ -55,61 +56,64 @@ type xdsClient struct {
 	mu sync.RWMutex
 }
 
-type clusterIPResolver struct {
-	resolver *net.Resolver
-	mu       sync.Mutex
-}
-
-func newClusterIPResolver() *clusterIPResolver {
-	r := &net.Resolver{
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return net.DialTimeout("tcp", defaultDNSProxyAddress, defaultDNSTimeout)
-		},
-	}
-	return &clusterIPResolver{
-		resolver: r,
-		mu:       sync.Mutex{},
+func newNdsResolver() *ndsResolver {
+	return &ndsResolver{
+		mu:          sync.Mutex{},
+		lookupTable: make(map[string][]string),
 	}
 }
 
-func (r *clusterIPResolver) lookupHost(host string) ([]string, error) {
+type ndsResolver struct {
+	lookupTable map[string][]string
+	mu          sync.Mutex
+}
+
+func (r *ndsResolver) lookupHost(host string) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.resolver.LookupHost(context.Background(), host)
+	if ips, ok := r.lookupTable[host]; ok {
+		return ips, nil
+	}
+	// TODO: send nds request
+	return nil, nil
 }
 
-// newStreamClient constructs a new stream client that communicates with the xds server
-func newStreamClient(addr string) (StreamClient, error) {
-	cli, err := aggregateddiscoveryservice.NewClient("xds_servers", client.WithHostPorts(addr))
+func (r *ndsResolver) updateLookupTable(up map[string][]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lookupTable = up
+}
+
+// newADSClient constructs a new stream client that communicates with the xds server
+func newADSClient(addr string) (ADSClient, error) {
+	cli, err := aggregateddiscoveryservice.NewClient("xds_servers",
+		client.WithHostPorts(addr),
+	)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("[XDS] client: construct stream client failed, %s", err.Error())
 	}
-	// TODO: reconstruct the stream when error happens in send() or recv()
-	sc, err := cli.StreamAggregatedResources(context.Background())
-	return sc, err
+	return cli, nil
 }
 
 // newXDSClient constructs a new xdsClient, which is used to get xds resources from the xds server.
 func newXdsClient(bCfg *BootstrapConfig, updater *xdsResourceManager) (*xdsClient, error) {
 	// build stream client that communicates with the xds server
-	sc, err := newStreamClient(bCfg.xdsSvrCfg.serverAddress)
+	ac, err := newADSClient(bCfg.xdsSvrCfg.serverAddress)
 	if err != nil {
 		return nil, fmt.Errorf("[XDS] client: construct stream client failed, %s", err.Error())
 	}
 
 	cli := &xdsClient{
 		config:          bCfg,
-		streamClient:    sc,
+		adsClient:       ac,
 		watchedResource: make(map[xdsresource.ResourceType]map[string]bool),
-		clusterIPMap:    make(map[string]string),
-		cipResolver:     newClusterIPResolver(),
+		cipResolver:     newNdsResolver(), //newClusterIPResolver(),
 		versionMap:      make(map[xdsresource.ResourceType]string),
 		nonceMap:        make(map[xdsresource.ResourceType]string),
 		resourceUpdater: updater,
 		refreshInterval: defaultRefreshInterval,
 		closeCh:         make(chan struct{}),
 	}
-
 	cli.run()
 	return cli, nil
 }
@@ -194,8 +198,6 @@ func (c *xdsClient) receiver() {
 			if err != nil {
 				klog.Errorf("[XDS] client, receive failed, error=%s", err)
 				// TODO: reconnect?
-				if err != nil {
-				}
 				continue
 			}
 			err = c.handleResponse(resp)
@@ -215,24 +217,23 @@ func (c *xdsClient) run() {
 // close the xdsClient
 func (c *xdsClient) close() {
 	close(c.closeCh)
-	c.streamClient.Close()
+	c.adsStream.Close()
 }
 
-// getStreamClient returns the streamClient of xdsClient
-func (c *xdsClient) getStreamClient() (StreamClient, error) {
+// getStreamClient returns the adsClient of xdsClient
+func (c *xdsClient) getStreamClient() (ADSStream, error) {
 	c.streamClientLock.Lock()
 	defer c.streamClientLock.Unlock()
 	// get stream client
-	if c.streamClient != nil {
-		return c.streamClient, nil
+	if c.adsStream != nil {
+		return c.adsStream, nil
 	}
-	// reconstruct the stream client
-	// TODO: add retry?
-	sc, err := newStreamClient(c.config.xdsSvrCfg.serverAddress)
+	// reconnect stream
+	as, err := c.adsClient.StreamAggregatedResources(context.Background())
 	if err == nil {
-		c.streamClient = sc
+		c.adsStream = as
 	}
-	return sc, err
+	return c.adsStream, err
 }
 
 // sendRequest prepares the requests and sends to the xds server
@@ -280,11 +281,15 @@ func (c *xdsClient) updateAndACK(rType xdsresource.ResourceType, nonce, version 
 	c.sendRequest(rType, true, errMsg)
 }
 
-func (c *xdsClient) initRequest() {
-	c.sendRequest(xdsresource.ListenerType, false, "")
+func (c *xdsClient) warmup() {
+	// watch the NameTable when init the xds client
+	c.Watch(xdsresource.NameTableType, "")
+	// TODO: maybe need to watch the listener
 }
 
-func (c *xdsClient) getClusterIP(rName string) (string, error) {
+// getListenerName returns the listener name in this format: ${clusterIP}_${port}
+// lookup the clusterIP using the cipResolver and return the listenerName
+func (c *xdsClient) getListenerName(rName string) (string, error) {
 	tmp := strings.Split(rName, ":")
 	if len(tmp) < 2 {
 		return "", fmt.Errorf("invalid listener name: %s", rName)
@@ -298,21 +303,17 @@ func (c *xdsClient) getClusterIP(rName string) (string, error) {
 	return "", err
 }
 
-// handleResponse handles the lds response
+// handleLDS handles the lds response
 func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalLDS(resp.GetResources())
 	filteredRes := make(map[string]*xdsresource.ListenerResource)
-	// returned listener name is in the format of [clusterIP_Port]
-	// convert the listener to local format.
+	// returned listener name is in the format of ${clusterIP}_${port}
+	// which should be converted into to the listener name, in the form of ${fqdn}_${port}, watched by the xds client.
 	for n := range c.watchedResource[xdsresource.ListenerType] {
-		cip, ok := c.clusterIPMap[n]
-		if !ok {
-			cip, err = c.getClusterIP(n)
-			if err != nil || cip == "" {
-				klog.Warnf("[XDS] client, get cluster ip of resource[%s] failed, error=%s", n, err)
-				continue
-			}
-			c.clusterIPMap[n] = cip
+		cip, err := c.getListenerName(n)
+		if err != nil || cip == "" {
+			klog.Warnf("[XDS] client, get cluster ip of resource[%s] failed, error=%s", n, err)
+			continue
 		}
 		if ln, ok := res[cip]; ok {
 			filteredRes[n] = ln
@@ -341,7 +342,7 @@ func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 	return nil
 }
 
-// handleResponse handles the rds response
+// handleRDS handles the rds response
 func (c *xdsClient) handleRDS(resp *discoveryv3.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalRDS(resp.GetResources())
 	c.updateAndACK(xdsresource.RouteConfigType, resp.GetNonce(), resp.GetVersionInfo(), err)
@@ -376,7 +377,7 @@ func (c *xdsClient) handleRDS(resp *discoveryv3.DiscoveryResponse) error {
 	return nil
 }
 
-// handleResponse handles the cds response
+// handleCDS handles the cds response
 func (c *xdsClient) handleCDS(resp *discoveryv3.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalCDS(resp.GetResources())
 	c.updateAndACK(xdsresource.ClusterType, resp.GetNonce(), resp.GetVersionInfo(), err)
@@ -407,7 +408,7 @@ func (c *xdsClient) handleCDS(resp *discoveryv3.DiscoveryResponse) error {
 	return nil
 }
 
-// handleResponse handles the eds response
+// handleEDS handles the eds response
 func (c *xdsClient) handleEDS(resp *discoveryv3.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalEDS(resp.GetResources())
 	c.updateAndACK(xdsresource.EndpointsType, resp.GetNonce(), resp.GetVersionInfo(), err)
@@ -423,6 +424,13 @@ func (c *xdsClient) handleEDS(resp *discoveryv3.DiscoveryResponse) error {
 	// update to cache
 	c.resourceUpdater.UpdateEndpointsResource(res, resp.GetVersionInfo())
 	return nil
+}
+
+func (c *xdsClient) handleNDS(resp *discoveryv3.DiscoveryResponse) error {
+	nt, err := xdsresource.UnmarshalNDS(resp.GetResources())
+	c.updateAndACK(xdsresource.NameTableType, resp.GetNonce(), resp.GetVersionInfo(), err)
+	c.cipResolver.updateLookupTable(nt.NameTable)
+	return err
 }
 
 // handleResponse handles the response from xDS server
@@ -454,6 +462,8 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 		err = c.handleCDS(resp)
 	case xdsresource.EndpointsType:
 		err = c.handleEDS(resp)
+	case xdsresource.NameTableType:
+		err = c.handleNDS(resp)
 	}
 	return err
 }

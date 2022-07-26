@@ -24,7 +24,7 @@ type xdsResourceManager struct {
 	meta  map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta
 	// notifierMap maintains the channel for notifying resource update
 	notifierMap map[xdsresource.ResourceType]map[string][]*notifier
-	mu sync.Mutex
+	mu          sync.Mutex
 
 	// dumpPath is the path to dump the cached resource.
 	// TODO: refactor dump logic
@@ -68,14 +68,15 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 
 	m.client = cli
 	// init request to activate dns proxy
-	m.initRequest()
+	m.warmup()
+
 	// start the cache cleaner
 	go m.cleaner()
 	return m, nil
 }
 
-func (m *xdsResourceManager) initRequest() {
-	m.client.initRequest()
+func (m *xdsResourceManager) warmup() {
+	m.client.warmup()
 }
 
 // getFromCache returns the resource from cache and update the access time in the meta
@@ -88,7 +89,7 @@ func (m *xdsResourceManager) getFromCache(rType xdsresource.ResourceType, rName 
 		return nil, false
 	}
 
-	currTime := time.Now()
+	now := time.Now()
 	res, ok := m.cache[rType][rName]
 	if ok {
 		// Record the timestamp
@@ -96,10 +97,10 @@ func (m *xdsResourceManager) getFromCache(rType xdsresource.ResourceType, rName 
 			m.meta[rType] = make(map[string]*xdsresource.ResourceMeta)
 		}
 		if _, ok := m.meta[rType][rName]; ok {
-			m.meta[rType][rName].LastAccessTime = currTime
+			m.meta[rType][rName].LastAccessTime = now
 		} else {
 			m.meta[rType][rName] = &xdsresource.ResourceMeta{
-				LastAccessTime: currTime,
+				LastAccessTime: now,
 			}
 		}
 	}

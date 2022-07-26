@@ -68,7 +68,7 @@ func (r *ClusterResource) InlineEDS() *EndpointsResource {
 	return r.InlineEndpoints
 }
 
-func parseCluster(r *any.Any) (string, *ClusterResource, error) {
+func unmarshalCluster(r *any.Any) (string, *ClusterResource, error) {
 	if r.GetTypeUrl() != ClusterTypeUrl {
 		return "", nil, fmt.Errorf("invalid cluster resource type: %s", r.GetTypeUrl())
 	}
@@ -99,7 +99,7 @@ func UnmarshalCDS(rawResources []*any.Any) (map[string]*ClusterResource, error) 
 	errMap := make(map[string]error)
 	var errSlice []error
 	for _, r := range rawResources {
-		name, res, err := parseCluster(r)
+		name, res, err := unmarshalCluster(r)
 		if err != nil {
 			if name == "" {
 				errSlice = append(errSlice, err)
@@ -107,7 +107,6 @@ func UnmarshalCDS(rawResources []*any.Any) (map[string]*ClusterResource, error) 
 			}
 			errMap[name] = err
 			continue
-			//klog.Errorf("unmarshal cluster failed, error=%s", err)
 		}
 		ret[name] = res
 	}

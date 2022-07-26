@@ -18,6 +18,8 @@ const (
 	RouteConfigType
 	ClusterType
 	EndpointsType
+
+	NameTableType
 )
 
 // Resource types in xDS v3.
@@ -32,6 +34,8 @@ const (
 	RuntimeTypeUrl         = apiTypePrefix + "envoy.service.runtime.v3.Runtime"
 	HTTPConnManagerTypeUrl = apiTypePrefix + "envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
 	ThriftProxyTypeUrl     = apiTypePrefix + "envoy.extensions.filters.network.thrift_proxy.v3.ThriftProxy"
+
+	NameTableTypeUrl = apiTypePrefix + "istio.networking.nds.v1.NameTable"
 	// AnyType is used only by ADS
 	AnyType = ""
 )
@@ -41,13 +45,15 @@ var ResourceTypeToUrl = map[ResourceType]string{
 	RouteConfigType: RouteTypeUrl,
 	ClusterType:     ClusterTypeUrl,
 	EndpointsType:   EndpointTypeUrl,
+	NameTableType:   NameTableTypeUrl,
 }
 
 var ResourceUrlToType = map[string]ResourceType{
-	ListenerTypeUrl: ListenerType,
-	RouteTypeUrl:    RouteConfigType,
-	ClusterTypeUrl:  ClusterType,
-	EndpointTypeUrl: EndpointsType,
+	ListenerTypeUrl:  ListenerType,
+	RouteTypeUrl:     RouteConfigType,
+	ClusterTypeUrl:   ClusterType,
+	EndpointTypeUrl:  EndpointsType,
+	NameTableTypeUrl: NameTableType,
 }
 
 var ResourceTypeToName = map[ResourceType]string{
@@ -55,4 +61,5 @@ var ResourceTypeToName = map[ResourceType]string{
 	RouteConfigType: "RouteConfig",
 	ClusterType:     "Cluster",
 	EndpointsType:   "ClusterLoadAssignment",
+	NameTableType:   "NameTable",
 }

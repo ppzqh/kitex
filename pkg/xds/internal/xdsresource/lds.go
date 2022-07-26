@@ -17,10 +17,10 @@ type ListenerResource struct {
 	NetworkFilters []*NetworkFilter
 }
 
-type NetworkFileterType int
+type NetworkFilterType int
 
 const (
-	NetworkFilterTypeHTTP NetworkFileterType = iota
+	NetworkFilterTypeHTTP NetworkFilterType = iota
 	NetworkFilterTypeThrift
 )
 
@@ -29,8 +29,8 @@ const (
 // If InlineRouteConfig is not nil, use it to perform routing.
 // Or, use RouteConfigName as the resourceName to get the RouteConfigResource.
 type NetworkFilter struct {
-	FilterType        NetworkFileterType
-	RouteConfigName   string
+	FilterType      NetworkFilterType
+	RouteConfigName string
 	InlineRouteConfig *RouteConfigResource
 }
 

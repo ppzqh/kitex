@@ -16,8 +16,8 @@ import (
 
 // listener
 var (
-	ListenerName1 = "listener1"
-	ListenerName2 = "listener2"
+	ListenerName1 = "listener1:80"
+	ListenerName2 = "listener2:80"
 	LDSVersion1   = "v1"
 	LDSVersion2   = "v2"
 	LDSVersion3   = "v3"
@@ -25,12 +25,12 @@ var (
 	LDSNonce2     = "nonce2"
 	LDSNonce3     = "nonce3"
 
-	RouteConfigName1    = "routeConfig1"
-	RouteConfigName2    = "routeConfig2"
-	RouteConfigVersion1 = "v1"
-	RouteConfigVersion2 = "v2"
-	RouteConfigNonce1   = "nonce1"
-	RouteConfigNonce2   = "nonce2"
+	RouteConfigName1 = "routeConfig1"
+	RouteConfigName2 = "routeConfig2"
+	RDSVersion1      = "v1"
+	RDSVersion2      = "v2"
+	RDSNonce1        = "nonce1"
+	RDSNonce2        = "nonce2"
 
 	ClusterName     = "cluster"
 	ClusterVersion  = "v3"
@@ -227,24 +227,24 @@ var (
 	}
 
 	RdsResp1 = &discoveryv3.DiscoveryResponse{
-		VersionInfo: RouteConfigVersion1,
+		VersionInfo: RDSVersion1,
 		Resources: []*any.Any{
 			testutil.MarshalAny(RouteConfig1),
 			testutil.MarshalAny(RouteConfig2),
 		},
 		Canary:       false,
 		TypeUrl:      xdsresource.RouteTypeUrl,
-		Nonce:        RouteConfigNonce1,
+		Nonce:        RDSNonce1,
 		ControlPlane: nil,
 	}
 	RdsResp2 = &discoveryv3.DiscoveryResponse{
-		VersionInfo: RouteConfigVersion1,
+		VersionInfo: RDSVersion1,
 		Resources: []*any.Any{
 			testutil.MarshalAny(RouteConfig2),
 		},
 		Canary:       false,
 		TypeUrl:      xdsresource.RouteTypeUrl,
-		Nonce:        RouteConfigNonce1,
+		Nonce:        RDSNonce1,
 		ControlPlane: nil,
 	}
 	CdsResp1 = &discoveryv3.DiscoveryResponse{
