@@ -29,10 +29,10 @@ type xdsClient struct {
 	// every discovery request will contain all the resources of one type in the map.
 	watchedResource map[xdsresource.ResourceType]map[string]bool
 
-	// cipResolver is used to resolve the clusterIP.
+	// cipResolver is used to resolve the clusterIP, using NDS.
 	// listenerName (we use fqdn for listener name) to clusterIP.
 	// "kitex-server.default.svc.cluster.local" -> "10.0.0.1"
-	cipResolver ClusterIPResolver
+	cipResolver *ndsResolver
 
 	// versionMap stores the versions of different resource type.
 	versionMap map[xdsresource.ResourceType]string
@@ -68,14 +68,11 @@ type ndsResolver struct {
 	mu          sync.Mutex
 }
 
-func (r *ndsResolver) lookupHost(host string) ([]string, error) {
+func (r *ndsResolver) lookupHost(host string) ([]string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if ips, ok := r.lookupTable[host]; ok {
-		return ips, nil
-	}
-	// TODO: send nds request
-	return nil, nil
+	ips, ok := r.lookupTable[host]
+	return ips, ok
 }
 
 func (r *ndsResolver) updateLookupTable(up map[string][]string) {
@@ -295,48 +292,38 @@ func (c *xdsClient) getListenerName(rName string) (string, error) {
 		return "", fmt.Errorf("invalid listener name: %s", rName)
 	}
 	addr, port := tmp[0], tmp[1]
-	cip, err := c.cipResolver.lookupHost(addr)
-	if err == nil && len(cip) > 0 {
+	cip, ok := c.cipResolver.lookupHost(addr)
+	if ok && len(cip) > 0 {
 		clusterIPPort := cip[0] + "_" + port
 		return clusterIPPort, nil
 	}
-	return "", err
+	return "", fmt.Errorf("failed to convert listener name for %s", rName)
 }
 
 // handleLDS handles the lds response
 func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 	res, err := xdsresource.UnmarshalLDS(resp.GetResources())
-	filteredRes := make(map[string]*xdsresource.ListenerResource)
-	// returned listener name is in the format of ${clusterIP}_${port}
-	// which should be converted into to the listener name, in the form of ${fqdn}_${port}, watched by the xds client.
-	for n := range c.watchedResource[xdsresource.ListenerType] {
-		cip, err := c.getListenerName(n)
-		if err != nil || cip == "" {
-			klog.Warnf("[XDS] client, get cluster ip of resource[%s] failed, error=%s", n, err)
-			continue
-		}
-		if ln, ok := res[cip]; ok {
-			filteredRes[n] = ln
-		}
-	}
 	c.updateAndACK(xdsresource.ListenerType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
 		return err
 	}
 
-	//c.mu.Lock()
-	//for name, v := range res {
-	//	if _, ok := c.watchedResource[xdsresource.ListenerType][name]; !ok {
-	//		delete(res, name)
-	//		continue
-	//	}
-	//	// subscribe the routeConfig name
-	//	if _, ok := c.watchedResource[xdsresource.RouteConfigType]; !ok {
-	//		c.watchedResource[xdsresource.RouteConfigType] = make(map[string]bool)
-	//	}
-	//	c.watchedResource[xdsresource.RouteConfigType][v.RouteConfigName] = true
-	//}
-	//c.mu.Unlock()
+	// returned listener name is in the format of ${clusterIP}_${port}
+	// which should be converted into to the listener name, in the form of ${fqdn}_${port}, watched by the xds client.
+	// we need to filter the response.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	filteredRes := make(map[string]*xdsresource.ListenerResource)
+	for n := range c.watchedResource[xdsresource.ListenerType] {
+		ln, err := c.getListenerName(n)
+		if err != nil || ln == "" {
+			klog.Warnf("[XDS] client, handleLDS failed, error=%s", n, err)
+			continue
+		}
+		if lis, ok := res[ln]; ok {
+			filteredRes[n] = lis
+		}
+	}
 	// update to cache
 	c.resourceUpdater.UpdateListenerResource(filteredRes, resp.GetVersionInfo())
 	return nil
@@ -350,28 +337,16 @@ func (c *xdsClient) handleRDS(resp *discoveryv3.DiscoveryResponse) error {
 		return err
 	}
 
-	// prepare CDS request
-	//c.mu.Lock()
-	//for name, rcfg := range res {
-	//	// only accept the routeConfig that is subscribed
-	//	if _, ok := c.watchedResource[xdsresource.RouteConfigType][name]; !ok {
-	//		delete(res, name)
-	//		continue
-	//	}
-	//
-	//	// subscribe cluster name
-	//	for _, vh := range rcfg.VirtualHosts {
-	//		for _, r := range vh.Routes {
-	//			for _, wc := range r.WeightedClusters {
-	//				if _, ok := c.watchedResource[xdsresource.ClusterType]; !ok {
-	//					c.watchedResource[xdsresource.ClusterType] = make(map[string]bool)
-	//				}
-	//				c.watchedResource[xdsresource.ClusterType][wc.Name] = true
-	//			}
-	//		}
-	//	}
-	//}
-	//c.mu.Unlock()
+	// filter the resources that are not in the watched list
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for name := range res {
+		// only accept the routeConfig that is subscribed
+		if _, ok := c.watchedResource[xdsresource.RouteConfigType][name]; !ok {
+			delete(res, name)
+			continue
+		}
+	}
 	// update to cache
 	c.resourceUpdater.UpdateRouteConfigResource(res, resp.GetVersionInfo())
 	return nil
@@ -384,25 +359,16 @@ func (c *xdsClient) handleCDS(resp *discoveryv3.DiscoveryResponse) error {
 	if err != nil {
 		return fmt.Errorf("handle cluster failed: %s", err)
 	}
-	// prepare EDS request
-	c.mu.Lock()
-	// store all inline EDS
-	for name, v := range res {
+
+	// filter the resources that are not in the watched list
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for name := range res {
 		if _, ok := c.watchedResource[xdsresource.ClusterType][name]; !ok {
 			delete(res, name)
 			continue
 		}
-		if _, ok := c.watchedResource[xdsresource.EndpointsType]; !ok {
-			c.watchedResource[xdsresource.EndpointsType] = make(map[string]bool)
-		}
-		// subscribe endpoint name
-		if v.EndpointName != "" {
-			c.watchedResource[xdsresource.EndpointsType][v.EndpointName] = true
-		} else {
-			c.watchedResource[xdsresource.EndpointsType][name] = true
-		}
 	}
-	c.mu.Unlock()
 	// update to cache
 	c.resourceUpdater.UpdateClusterResource(res, resp.GetVersionInfo())
 	return nil
@@ -415,6 +381,10 @@ func (c *xdsClient) handleEDS(resp *discoveryv3.DiscoveryResponse) error {
 	if err != nil {
 		return fmt.Errorf("handle endpoint failed: %s", err)
 	}
+
+	// filter the resources that are not in the watched list
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for name := range res {
 		if _, ok := c.watchedResource[xdsresource.EndpointsType][name]; !ok {
 			delete(res, name)
@@ -429,6 +399,9 @@ func (c *xdsClient) handleEDS(resp *discoveryv3.DiscoveryResponse) error {
 func (c *xdsClient) handleNDS(resp *discoveryv3.DiscoveryResponse) error {
 	nt, err := xdsresource.UnmarshalNDS(resp.GetResources())
 	c.updateAndACK(xdsresource.NameTableType, resp.GetNonce(), resp.GetVersionInfo(), err)
+	if err != nil {
+		return err
+	}
 	c.cipResolver.updateLookupTable(nt.NameTable)
 	return err
 }

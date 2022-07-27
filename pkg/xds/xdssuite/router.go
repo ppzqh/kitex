@@ -51,9 +51,6 @@ func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult
 
 // getRouteConfig gets the route config from xdsResourceManager
 func getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, error) {
-	// TODO: 拼接 ri.Invocation().ServiceName()
-
-	ri.To().ServiceName()
 	m, err := getXdsResourceManager()
 	if err != nil {
 		return nil, err
@@ -125,12 +122,14 @@ func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource
 // matchHTTPRoute matches one http route
 func matchHTTPRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
 	if rcfg := routeConfig.HttpRouteConfig; rcfg != nil {
+		// path defined in the virtual services should be ${serviceName}/${methodName}
+		path := ri.Invocation().ServiceName() + "/" + ri.To().Method()
 		for _, vh := range rcfg.VirtualHosts {
-			// skip the domain match
+			// skip the domain match now.
 
-			// use the first matched route
+			// use the first matched route.
 			for _, r := range vh.Routes {
-				if routeMatched(ri.To(), r) {
+				if routeMatched(path, ri.To(), r) {
 					return r
 				}
 			}
@@ -143,7 +142,7 @@ func matchHTTPRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigReso
 func matchThriftRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
 	if rcfg := routeConfig.ThriftRouteConfig; rcfg != nil {
 		for _, r := range rcfg.Routes {
-			if routeMatched(ri.To(), r) {
+			if routeMatched(ri.To().Method(), ri.To(), r) {
 				return r
 			}
 		}
@@ -152,9 +151,8 @@ func matchThriftRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigRe
 }
 
 // routeMatched checks if the route matches the info provided in the RPCInfo
-func routeMatched(to rpcinfo.EndpointInfo, r *xdsresource.Route) bool {
-	method := to.Method()
-	if r.Match != nil && r.Match.MatchPath(method) {
+func routeMatched(path string, to rpcinfo.EndpointInfo, r *xdsresource.Route) bool {
+	if r.Match != nil && r.Match.MatchPath(path) {
 		//return r
 		tagMatched := true
 		for mk, mv := range r.Match.GetTags() {
