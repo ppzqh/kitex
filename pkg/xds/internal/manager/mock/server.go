@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3"
 	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3/aggregateddiscoveryservice"
-	"github.com/cloudwego/kitex/pkg/xds/internal/testutil/resource"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	"github.com/cloudwego/kitex/server"
 	"net"
@@ -31,22 +30,25 @@ func StartXDSServer(address string) *testXDSServer {
 			respCh: respCh,
 			resourceCache: map[xdsresource.ResourceType]map[string]*discoveryv3.DiscoveryResponse{
 				xdsresource.ListenerType: {
-					"":                            resource.LdsResp1,
-					resource.LdsResp1.VersionInfo: resource.LdsResp1,
-					resource.LdsResp2.VersionInfo: resource.LdsResp2,
-					resource.LdsResp3.VersionInfo: resource.LdsResp3,
+					"":                   LdsResp1,
+					LdsResp1.VersionInfo: LdsResp1,
+					LdsResp2.VersionInfo: LdsResp2,
+					LdsResp3.VersionInfo: LdsResp3,
 				},
 				xdsresource.RouteConfigType: {
-					"":                            resource.RdsResp1,
-					resource.RdsResp1.VersionInfo: resource.RdsResp1,
+					"":                   RdsResp1,
+					RdsResp1.VersionInfo: RdsResp1,
 				},
 				xdsresource.ClusterType: {
-					"":                            resource.CdsResp1,
-					resource.CdsResp1.VersionInfo: resource.CdsResp1,
+					"":                   CdsResp1,
+					CdsResp1.VersionInfo: CdsResp1,
 				},
 				xdsresource.EndpointsType: {
-					"":                            resource.EdsResp1,
-					resource.EdsResp1.VersionInfo: resource.EdsResp1,
+					"":                   EdsResp1,
+					EdsResp1.VersionInfo: EdsResp1,
+				},
+				xdsresource.NameTableType: {
+					"": NdsResp1,
 				},
 			},
 		},
@@ -73,9 +75,18 @@ type testAdsService struct {
 
 func (svr *testAdsService) StreamAggregatedResources(stream discoveryv3.AggregatedDiscoveryService_StreamAggregatedResourcesServer) (err error) {
 	errCh := make(chan error, 2)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+
 	// receive the request
 	go func() {
 		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+			}
+
 			msg, err := stream.Recv()
 			if err != nil {
 				errCh <- err
@@ -88,6 +99,12 @@ func (svr *testAdsService) StreamAggregatedResources(stream discoveryv3.Aggregat
 	// send the response
 	go func() {
 		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+			}
+
 			select {
 			case resp := <-svr.respCh:
 				err := stream.Send(resp)

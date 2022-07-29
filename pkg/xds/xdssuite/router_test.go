@@ -14,7 +14,7 @@ var (
 	clusterName2 = "cluster2"
 	route0       = &xdsresource.Route{
 		Match: &xdsresource.HTTPRouteMatch{
-			Prefix: "/p",
+			Prefix: "/prefix",
 		},
 	}
 	route1 = &xdsresource.Route{
@@ -31,7 +31,7 @@ var (
 	}
 	route2 = &xdsresource.Route{
 		Match: &xdsresource.HTTPRouteMatch{
-			Path: method,
+			Path: svcName + "/" + method,
 		},
 		WeightedClusters: []*xdsresource.WeightedCluster{
 			{
@@ -42,69 +42,77 @@ var (
 		Timeout: 0,
 	}
 	routeConfigNil = &xdsresource.RouteConfigResource{
-		VirtualHosts: nil,
+		HttpRouteConfig: &xdsresource.HTTPRouteConfig{
+			VirtualHosts: nil,
+		},
 	}
 	routeConfigPrefixNotMatched = &xdsresource.RouteConfigResource{
-		VirtualHosts: []*xdsresource.VirtualHost{
-			{
-				Name: svcName,
-				Routes: []*xdsresource.Route{
-					route0,
+		HttpRouteConfig: &xdsresource.HTTPRouteConfig{
+			VirtualHosts: []*xdsresource.VirtualHost{
+				{
+					Routes: []*xdsresource.Route{
+						route0,
+					},
 				},
 			},
 		},
 	}
 	routeConfigDefaultPrefix = &xdsresource.RouteConfigResource{
-		VirtualHosts: []*xdsresource.VirtualHost{
-			{
-				Name: svcName,
-				Routes: []*xdsresource.Route{
-					route1,
+		HttpRouteConfig: &xdsresource.HTTPRouteConfig{
+			VirtualHosts: []*xdsresource.VirtualHost{
+				{
+					Routes: []*xdsresource.Route{
+						route1,
+					},
 				},
 			},
 		},
 	}
 	routeConfigPathMatched = &xdsresource.RouteConfigResource{
-		VirtualHosts: []*xdsresource.VirtualHost{
-			{
-				Name: svcName,
-				Routes: []*xdsresource.Route{
-					route2,
+		HttpRouteConfig: &xdsresource.HTTPRouteConfig{
+			VirtualHosts: []*xdsresource.VirtualHost{
+				{
+					Routes: []*xdsresource.Route{
+						route2,
+					},
 				},
 			},
 		},
 	}
 	routeConfigInOrder = &xdsresource.RouteConfigResource{
-		VirtualHosts: []*xdsresource.VirtualHost{
-			{
-				Name: svcName,
-				Routes: []*xdsresource.Route{
-					route1,
-					route2,
+		HttpRouteConfig: &xdsresource.HTTPRouteConfig{
+			VirtualHosts: []*xdsresource.VirtualHost{
+				{
+					Routes: []*xdsresource.Route{
+						route1,
+						route2,
+					},
 				},
 			},
 		},
 	}
 )
 
-func Test_matchRoute(t *testing.T) {
+func Test_matchHTTPRoute(t *testing.T) {
 	to := rpcinfo.NewEndpointInfo(svcName, method, nil, nil)
-	ri := rpcinfo.NewRPCInfo(nil, to, nil, nil, nil)
+	ri := rpcinfo.NewRPCInfo(nil, to, rpcinfo.NewInvocation(svcName, method), nil, nil)
 
 	var r *xdsresource.Route
 	// not matched
-	r = matchRoute(ri, routeConfigNil)
+	r = matchHTTPRoute(ri, routeConfigNil)
 	test.Assert(t, r == nil)
-	r = matchRoute(ri, routeConfigPrefixNotMatched)
+	r = matchHTTPRoute(ri, routeConfigPrefixNotMatched)
 	test.Assert(t, r == nil)
 
 	// default prefix
-	r = matchRoute(ri, routeConfigDefaultPrefix)
+	r = matchHTTPRoute(ri, routeConfigDefaultPrefix)
 	test.Assert(t, r.WeightedClusters[0].Name == clusterName1)
 	// path
-	r = matchRoute(ri, routeConfigPathMatched)
+	r = matchHTTPRoute(ri, routeConfigPathMatched)
+	test.Assert(t, r != nil)
 	test.Assert(t, r.WeightedClusters[0].Name == clusterName2)
 	// test the order, return the first matched
-	r = matchRoute(ri, routeConfigInOrder)
+	r = matchHTTPRoute(ri, routeConfigInOrder)
+	test.Assert(t, r != nil)
 	test.Assert(t, r.WeightedClusters[0].Name == clusterName1)
 }

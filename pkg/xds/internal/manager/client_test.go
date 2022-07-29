@@ -6,10 +6,10 @@ import (
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/xds/internal/api/discoveryv3"
 	"github.com/cloudwego/kitex/pkg/xds/internal/manager/mock"
-	"github.com/cloudwego/kitex/pkg/xds/internal/testutil/resource"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	v3core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -33,12 +33,8 @@ func (sc *mockADSStream) Recv() (*discoveryv3.DiscoveryResponse, error) {
 	return nil, nil
 }
 
-type mockClusterIPResolver struct {
-	record map[string][]string
-}
-
-func (r *mockClusterIPResolver) lookupHost(host string) ([]string, error) {
-	return []string{"127.0.0.1"}, nil
+func (sc *mockADSStream) Close() error {
+	return nil
 }
 
 func Test_newXdsClient(t *testing.T) {
@@ -49,13 +45,14 @@ func Test_newXdsClient(t *testing.T) {
 			_ = svr.Stop()
 		}
 	}()
-	_, err := newXdsClient(
+	c, err := newXdsClient(
 		&BootstrapConfig{
 			node:      &v3core.Node{},
 			xdsSvrCfg: &XDSServerConfig{serverAddress: address},
 		},
 		nil,
 	)
+	defer c.close()
 	test.Assert(t, err == nil)
 }
 
@@ -136,27 +133,28 @@ func Test_xdsClient_handleResponse(t *testing.T) {
 			xdsSvrCfg: XdsServerConfig,
 		},
 		&xdsResourceManager{
-			cache:       make(map[xdsresource.ResourceType]map[string]xdsresource.Resource),
+			cache:       map[xdsresource.ResourceType]map[string]xdsresource.Resource{},
 			meta:        make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta),
 			notifierMap: make(map[xdsresource.ResourceType]map[string][]*notifier),
+			mu:          sync.Mutex{},
 			dumpPath:    defaultDumpPath,
 		},
 	)
+	defer c.close()
 	// inject mock
 	c.adsClient = &mockADSClient{}
-	c.cipResolver = &mockClusterIPResolver{}
 
 	test.Assert(t, err == nil)
 
 	// handle the response that includes resources that are not in the subscribed list
-	err = c.handleResponse(resource.LdsResp1)
+	err = c.handleResponse(mock.LdsResp1)
 	test.Assert(t, err == nil)
-	test.Assert(t, c.versionMap[xdsresource.ListenerType] == resource.LDSVersion1)
-	test.Assert(t, c.nonceMap[xdsresource.ListenerType] == resource.LDSNonce1)
+	test.Assert(t, c.versionMap[xdsresource.ListenerType] == mock.LDSVersion1)
+	test.Assert(t, c.nonceMap[xdsresource.ListenerType] == mock.LDSNonce1)
 
-	err = c.handleResponse(resource.RdsResp1)
+	err = c.handleResponse(mock.RdsResp1)
 	test.Assert(t, err == nil)
-	test.Assert(t, c.versionMap[xdsresource.RouteConfigType] == resource.RDSVersion1)
-	test.Assert(t, c.nonceMap[xdsresource.RouteConfigType] == resource.RDSNonce1)
+	test.Assert(t, c.versionMap[xdsresource.RouteConfigType] == mock.RDSVersion1)
+	test.Assert(t, c.nonceMap[xdsresource.RouteConfigType] == mock.RDSNonce1)
 	test.Assert(t, err == nil)
 }

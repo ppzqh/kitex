@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/xds/internal/manager/mock"
-	"github.com/cloudwego/kitex/pkg/xds/internal/testutil/resource"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 	v3core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"testing"
@@ -63,7 +62,7 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			args: args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.ListenerType,
-				resourceName: resource.ListenerName1,
+				resourceName: xdsresource.ListenerName1,
 			},
 			want:    nil,
 			wantErr: false,
@@ -73,7 +72,7 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			args: args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.RouteConfigType,
-				resourceName: resource.RouteConfigName1,
+				resourceName: xdsresource.RouteConfigName1,
 			},
 			want:    nil,
 			wantErr: false,
@@ -83,7 +82,7 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			args: args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.ClusterType,
-				resourceName: resource.ClusterName,
+				resourceName: xdsresource.ClusterName1,
 			},
 			want:    nil,
 			wantErr: false,
@@ -93,7 +92,7 @@ func Test_xdsResourceManager_Get(t *testing.T) {
 			args: args{
 				ctx:          context.Background(),
 				resourceType: xdsresource.EndpointsType,
-				resourceName: resource.EndpointName,
+				resourceName: xdsresource.EndpointName1,
 			},
 			want:    nil,
 			wantErr: false,
@@ -164,34 +163,65 @@ func Test_xdsResourceManager_Get_Resource_Update(t *testing.T) {
 
 	var res xdsresource.Resource
 	var err error
-	// GetListener
-	res, err = m.Get(context.Background(), xdsresource.ListenerType, resource.ListenerName1)
+	// Listener
+	res, err = m.Get(context.Background(), xdsresource.ListenerType, xdsresource.ListenerName1)
 	test.Assert(t, err == nil)
 	test.Assert(t, res != nil)
-	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName1] != nil)
-	test.Assert(t, res.(*xdsresource.ListenerResource).NetworkFilters[0].RouteConfigName == resource.RouteConfigName1)
-	// push the new resource and check if the resourceManager can update the resource
-	svr.PushResourceUpdate(resource.LdsResp2)
+	test.Assert(t, m.meta[xdsresource.ListenerType][xdsresource.ListenerName1] != nil)
+	test.Assert(t, m.cache[xdsresource.ListenerType][xdsresource.ListenerName1] != nil)
+	// push the new resource that does not include listener1 and check if the resourceManager can update the resource
+	svr.PushResourceUpdate(mock.LdsResp2)
 	time.Sleep(time.Millisecond * 100)
-	res, err = m.Get(context.Background(), xdsresource.ListenerType, resource.ListenerName1)
+	// should return nil resource
+	res, err = m.Get(context.Background(), xdsresource.ListenerType, xdsresource.ListenerName1)
 	test.Assert(t, err != nil)
+	test.Assert(t, m.cache[xdsresource.ListenerType][xdsresource.ListenerName1] == nil)
 
-	// GetRouteConfig
-	res, err = m.Get(context.Background(), xdsresource.RouteConfigType, resource.RouteConfigName1)
+	// RouteConfig
+	res, err = m.Get(context.Background(), xdsresource.RouteConfigType, xdsresource.RouteConfigName1)
 	test.Assert(t, err == nil)
 	test.Assert(t, res != nil)
+	test.Assert(t, m.meta[xdsresource.RouteConfigType][xdsresource.RouteConfigName1] != nil)
+	test.Assert(t, m.cache[xdsresource.RouteConfigType][xdsresource.RouteConfigName1] != nil)
 	// push the new resource and check if the resourceManager can update the resource
-	svr.PushResourceUpdate(resource.RdsResp2)
+	svr.PushResourceUpdate(mock.RdsResp2)
 	time.Sleep(time.Millisecond * 100)
-	res, err = m.Get(context.Background(), xdsresource.RouteConfigType, resource.RouteConfigName1)
+	res, err = m.Get(context.Background(), xdsresource.RouteConfigType, xdsresource.RouteConfigName1)
 	test.Assert(t, err != nil)
+	test.Assert(t, m.cache[xdsresource.RouteConfigType][xdsresource.RouteConfigName1] == nil)
+
+	// Cluster
+	res, err = m.Get(context.Background(), xdsresource.ClusterType, xdsresource.ClusterName1)
+	test.Assert(t, err == nil)
+	test.Assert(t, res != nil)
+	test.Assert(t, m.meta[xdsresource.ClusterType][xdsresource.ClusterName1] != nil)
+	test.Assert(t, m.cache[xdsresource.ClusterType][xdsresource.ClusterName1] != nil)
+	// push the new resource and check if the resourceManager can update the resource
+	svr.PushResourceUpdate(mock.CdsResp2)
+	time.Sleep(time.Millisecond * 100)
+	res, err = m.Get(context.Background(), xdsresource.ClusterType, xdsresource.ClusterName1)
+	test.Assert(t, err != nil)
+	test.Assert(t, m.cache[xdsresource.ClusterType][xdsresource.ClusterName1] == nil)
+
+	// Endpoint
+	res, err = m.Get(context.Background(), xdsresource.EndpointsType, xdsresource.EndpointName1)
+	test.Assert(t, err == nil)
+	test.Assert(t, res != nil)
+	test.Assert(t, m.meta[xdsresource.EndpointsType][xdsresource.EndpointName1] != nil)
+	test.Assert(t, m.cache[xdsresource.EndpointsType][xdsresource.EndpointName1] != nil)
+	// push the new resource and check if the resourceManager can update the resource
+	svr.PushResourceUpdate(mock.EdsResp2)
+	time.Sleep(time.Millisecond * 100)
+	res, err = m.Get(context.Background(), xdsresource.EndpointsType, xdsresource.EndpointName1)
+	test.Assert(t, err != nil)
+	test.Assert(t, m.cache[xdsresource.EndpointsType][xdsresource.EndpointName1] == nil)
 }
 
 func Test_xdsResourceManager_getFromCache(t *testing.T) {
 	m := &xdsResourceManager{
 		cache: map[xdsresource.ResourceType]map[string]xdsresource.Resource{
 			xdsresource.ListenerType: {
-				resource.ListenerName1: resource.Listener1,
+				xdsresource.ListenerName1: xdsresource.Listener1,
 			},
 		},
 		meta: map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta{
@@ -200,10 +230,10 @@ func Test_xdsResourceManager_getFromCache(t *testing.T) {
 	}
 
 	// succeed
-	res, ok := m.getFromCache(xdsresource.ListenerType, resource.ListenerName1)
+	res, ok := m.getFromCache(xdsresource.ListenerType, xdsresource.ListenerName1)
 	test.Assert(t, ok == true)
-	test.Assert(t, res == resource.Listener1)
-	test.Assert(t, m.meta[xdsresource.ListenerType][resource.ListenerName1] != nil)
+	test.Assert(t, res == xdsresource.Listener1)
+	test.Assert(t, m.meta[xdsresource.ListenerType][xdsresource.ListenerName1] != nil)
 
 	// failed
 	res, ok = m.getFromCache(xdsresource.ListenerType, "randomListener")

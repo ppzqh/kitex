@@ -1,12 +1,8 @@
 package xdsresource
 
 import (
-	"github.com/cloudwego/kitex/pkg/xds/internal/testutil"
 	"github.com/cloudwego/thriftgo/pkg/test"
-	v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	v3endpointpb "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"github.com/golang/protobuf/ptypes/any"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 	"reflect"
 	"strconv"
 	"testing"
@@ -49,72 +45,23 @@ func TestUnmarshalEDSError(t *testing.T) {
 }
 
 func TestUnmarshalEDSSuccess(t *testing.T) {
-	claName := "test"
-	addr := "127.0.0.1"
-	port1, port2 := 8080, 8081
-	weight1, weight2 := 50, 50
+	//edsAddr := "127.0.0.1"
+	//edsPort1, edsPort2 := 8080, 8081
+	//edsWeight1, edsWeight2 := 50, 50
 	rawResources := []*any.Any{
-		testutil.MarshalAny(&v3endpointpb.ClusterLoadAssignment{
-			ClusterName: claName,
-			Endpoints: []*v3endpointpb.LocalityLbEndpoints{
-				{
-					LbEndpoints: []*v3endpointpb.LbEndpoint{
-						{
-							HostIdentifier: &v3endpointpb.LbEndpoint_Endpoint{
-								Endpoint: &v3endpointpb.Endpoint{
-									Address: &v3.Address{
-										Address: &v3.Address_SocketAddress{
-											SocketAddress: &v3.SocketAddress{
-												Protocol: v3.SocketAddress_TCP,
-												Address:  addr,
-												PortSpecifier: &v3.SocketAddress_PortValue{
-													PortValue: uint32(port1),
-												},
-											},
-										},
-									},
-								},
-							},
-							LoadBalancingWeight: &wrapperspb.UInt32Value{
-								Value: uint32(weight1),
-							},
-						},
-						{
-							HostIdentifier: &v3endpointpb.LbEndpoint_Endpoint{
-								Endpoint: &v3endpointpb.Endpoint{
-									Address: &v3.Address{
-										Address: &v3.Address_SocketAddress{
-											SocketAddress: &v3.SocketAddress{
-												Protocol: v3.SocketAddress_TCP,
-												Address:  addr,
-												PortSpecifier: &v3.SocketAddress_PortValue{
-													PortValue: uint32(port2),
-												},
-											},
-										},
-									},
-								},
-							},
-							LoadBalancingWeight: &wrapperspb.UInt32Value{
-								Value: uint32(weight2),
-							},
-						},
-					},
-				},
-			},
-		}),
+		MarshalAny(Endpoints1),
 	}
 	got, err := UnmarshalEDS(rawResources)
 	test.Assert(t, err == nil)
 	test.Assert(t, len(got) == 1)
-	cla := got[claName]
+	cla := got[EndpointName1]
 	test.Assert(t, cla != nil)
 	test.Assert(t, len(cla.Localities) == 1)
 	test.Assert(t, len(cla.Localities[0].Endpoints) == 2)
 	e1 := cla.Localities[0].Endpoints[0]
 	test.Assert(t, e1.Weight() == 50)
-	test.Assert(t, e1.Addr().String() == addr+":"+strconv.Itoa(port1))
+	test.Assert(t, e1.Addr().String() == edsAddr+":"+strconv.Itoa(edsPort1))
 	e2 := cla.Localities[0].Endpoints[1]
 	test.Assert(t, e2.Weight() == 50)
-	test.Assert(t, e2.Addr().String() == addr+":"+strconv.Itoa(port2))
+	test.Assert(t, e2.Addr().String() == edsAddr+":"+strconv.Itoa(edsPort2))
 }

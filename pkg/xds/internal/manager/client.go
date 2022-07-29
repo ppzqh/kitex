@@ -214,7 +214,9 @@ func (c *xdsClient) run() {
 // close the xdsClient
 func (c *xdsClient) close() {
 	close(c.closeCh)
-	c.adsStream.Close()
+	if c.adsStream != nil {
+		c.adsStream.Close()
+	}
 }
 
 // getStreamClient returns the adsClient of xdsClient
@@ -226,11 +228,22 @@ func (c *xdsClient) getStreamClient() (ADSStream, error) {
 		return c.adsStream, nil
 	}
 	// reconnect stream
-	as, err := c.adsClient.StreamAggregatedResources(context.Background())
-	if err == nil {
-		c.adsStream = as
-	}
+	err := c.reconnect()
 	return c.adsStream, err
+}
+
+func (c *xdsClient) reconnect() error {
+	// close old stream
+	if c.adsStream != nil {
+		c.adsStream.Close()
+	}
+	// create new stream
+	as, err := c.adsClient.StreamAggregatedResources(context.Background())
+	if err != nil {
+		return err
+	}
+	c.adsStream = as
+	return nil
 }
 
 // sendRequest prepares the requests and sends to the xds server
@@ -317,7 +330,7 @@ func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 	for n := range c.watchedResource[xdsresource.ListenerType] {
 		ln, err := c.getListenerName(n)
 		if err != nil || ln == "" {
-			klog.Warnf("[XDS] client, handleLDS failed, error=%s", n, err)
+			//klog.Warnf("[XDS] client, handleLDS failed, error=%s", err)
 			continue
 		}
 		if lis, ok := res[ln]; ok {
@@ -408,6 +421,10 @@ func (c *xdsClient) handleNDS(resp *discoveryv3.DiscoveryResponse) error {
 
 // handleResponse handles the response from xDS server
 func (c *xdsClient) handleResponse(msg interface{}) error {
+	// TODO: check why the msg received from the stream is nil
+	if msg == nil {
+		return nil
+	}
 	// check the type of response
 	resp, ok := msg.(*discoveryv3.DiscoveryResponse)
 	if !ok {

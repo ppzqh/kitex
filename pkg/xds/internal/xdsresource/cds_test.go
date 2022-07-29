@@ -2,8 +2,6 @@ package xdsresource
 
 import (
 	"github.com/cloudwego/kitex/internal/test"
-	"github.com/cloudwego/kitex/pkg/xds/internal/testutil"
-	v3clusterpb "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"reflect"
 	"testing"
@@ -46,25 +44,15 @@ func TestUnmarshalCDSError(t *testing.T) {
 }
 
 func TestUnmarshalCDSSuccess(t *testing.T) {
-	clusterName := "test"
-	edsName := "test_eds"
 	rawResources := []*any.Any{
-		testutil.MarshalAny(&v3clusterpb.Cluster{
-			Name:                 "test",
-			ClusterDiscoveryType: &v3clusterpb.Cluster_Type{Type: v3clusterpb.Cluster_EDS},
-			EdsClusterConfig: &v3clusterpb.Cluster_EdsClusterConfig{
-				ServiceName: "test_eds",
-			},
-			LbPolicy:       v3clusterpb.Cluster_ROUND_ROBIN,
-			LoadAssignment: nil,
-		}),
+		MarshalAny(Cluster1),
 	}
 	got, err := UnmarshalCDS(rawResources)
 	test.Assert(t, err == nil)
 	test.Assert(t, len(got) == 1)
-	cluster := got[clusterName]
+	cluster := got[ClusterName1]
 	test.Assert(t, cluster != nil)
-	test.Assert(t, cluster.EndpointName == edsName)
+	test.Assert(t, cluster.EndpointName == EndpointName1)
 	test.Assert(t, cluster.DiscoveryType == ClusterDiscoveryTypeEDS)
 	test.Assert(t, cluster.LbPolicy == ClusterLbRoundRobin)
 	test.Assert(t, cluster.InlineEndpoints == nil)

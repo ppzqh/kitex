@@ -2,7 +2,6 @@ package xdsresource
 
 import (
 	"github.com/cloudwego/kitex/internal/test"
-	"github.com/cloudwego/kitex/pkg/xds/internal/testutil"
 	v3routepb "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/golang/protobuf/ptypes/any"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -53,7 +52,7 @@ func TestUnmarshalRDSSuccess(t *testing.T) {
 		path            = "test"
 	)
 	rawResources := []*any.Any{
-		testutil.MarshalAny(&v3routepb.RouteConfiguration{
+		MarshalAny(&v3routepb.RouteConfiguration{
 			Name: routeConfigName,
 			VirtualHosts: []*v3routepb.VirtualHost{
 				{

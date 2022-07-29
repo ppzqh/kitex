@@ -104,26 +104,31 @@ func getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, erro
 	return nil, fmt.Errorf("no matched route")
 }
 
-// matchRoute matches one route in the provided routeConfig based on information in RPCInfo
-func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
-	// If using GRPC, match the HTTP route
-	if ri.Config().TransportProtocol() == transport.GRPC {
-		return matchHTTPRoute(ri, routeConfig)
-	}
-	// Or, match thrift route first
-	r := matchThriftRoute(ri, routeConfig)
-	if r != nil {
-		return r
-	}
-	// fallback to http route if thrift route is not configured
-	return matchHTTPRoute(ri, routeConfig)
-}
+//// matchRoute matches one route in the provided routeConfig based on information in RPCInfo
+//func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
+//	// If using GRPC, match the HTTP route
+//	if ri.Config().TransportProtocol() == transport.GRPC {
+//		return matchHTTPRoute(ri, routeConfig)
+//	}
+//	// Or, match thrift route first
+//	r := matchThriftRoute(ri, routeConfig)
+//	if r != nil {
+//		return r
+//	}
+//	// fallback to http route if thrift route is not configured
+//	return matchHTTPRoute(ri, routeConfig)
+//}
 
 // matchHTTPRoute matches one http route
 func matchHTTPRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
 	if rcfg := routeConfig.HttpRouteConfig; rcfg != nil {
 		// path defined in the virtual services should be ${serviceName}/${methodName}
-		path := ri.Invocation().ServiceName() + "/" + ri.To().Method()
+		var svcName string
+		if ri.Invocation() != nil {
+			svcName = ri.Invocation().ServiceName()
+		}
+		path := svcName + "/" + ri.To().Method()
+		// match
 		for _, vh := range rcfg.VirtualHosts {
 			// skip the domain match now.
 
