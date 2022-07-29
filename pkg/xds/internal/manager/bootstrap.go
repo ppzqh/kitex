@@ -1,7 +1,6 @@
 package manager
 
 import (
-	"encoding/json"
 	"fmt"
 	v3core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	structpb "github.com/golang/protobuf/ptypes/struct"
@@ -23,17 +22,6 @@ type BootstrapConfig struct {
 
 type XDSServerConfig struct {
 	serverAddress string
-}
-
-type xdsServer struct {
-	ServerURI      string         `json:"server_uri"`
-	ChannelCreds   []channelCreds `json:"channel_creds"`
-	ServerFeatures []string       `json:"server_features"`
-}
-
-type channelCreds struct {
-	Type   string          `json:"type"`
-	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // newBootstrapConfig constructs the bootstrapConfig
