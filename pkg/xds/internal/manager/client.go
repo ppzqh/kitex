@@ -227,11 +227,13 @@ func (c *xdsClient) getStreamClient() (ADSStream, error) {
 	if c.adsStream != nil {
 		return c.adsStream, nil
 	}
+	c.adsStream.Context()
 	// reconnect stream
 	err := c.reconnect()
 	return c.adsStream, err
 }
 
+// TODO: reset the version map and nonce map when reconnect
 func (c *xdsClient) reconnect() error {
 	// close old stream
 	if c.adsStream != nil {
@@ -272,6 +274,9 @@ func (c *xdsClient) recv() (resp *discoveryv3.DiscoveryResponse, err error) {
 		return nil, err
 	}
 	resp, err = sc.Recv()
+	if err != nil {
+		c.reconnect()
+	}
 	return resp, err
 }
 
