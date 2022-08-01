@@ -87,7 +87,7 @@ func newADSClient(addr string) (ADSClient, error) {
 		client.WithHostPorts(addr),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("[XDS] client: construct stream client failed, %s", err.Error())
+		return nil, fmt.Errorf("[XDS] client: construct ads client failed, %s", err.Error())
 	}
 	return cli, nil
 }
@@ -194,7 +194,7 @@ func (c *xdsClient) receiver() {
 			resp, err := c.recv()
 			if err != nil {
 				klog.Errorf("[XDS] client, receive failed, error=%s", err)
-				// TODO: reconnect?
+				c.reconnect()
 				continue
 			}
 			err = c.handleResponse(resp)
@@ -227,24 +227,48 @@ func (c *xdsClient) getStreamClient() (ADSStream, error) {
 	if c.adsStream != nil {
 		return c.adsStream, nil
 	}
-	c.adsStream.Context()
-	// reconnect stream
-	err := c.reconnect()
-	return c.adsStream, err
+	// connect
+	as, err := c.connect()
+	if err != nil {
+		return nil, err
+	}
+	c.adsStream = as
+	return c.adsStream, nil
 }
 
-// TODO: reset the version map and nonce map when reconnect
+// connect construct a new stream that connects to the xds server
+func (c *xdsClient) connect() (ADSStream, error) {
+	as, err := c.adsClient.StreamAggregatedResources(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return as, nil
+}
+
+// reconnect construct a new stream and send all the watched resources
 func (c *xdsClient) reconnect() error {
+	c.streamClientLock.Lock()
+	defer c.streamClientLock.Unlock()
 	// close old stream
 	if c.adsStream != nil {
 		c.adsStream.Close()
 	}
 	// create new stream
-	as, err := c.adsClient.StreamAggregatedResources(context.Background())
+	as, err := c.connect()
 	if err != nil {
 		return err
 	}
 	c.adsStream = as
+
+	// reset the version map, nonce map and send new requests when reconnect
+	c.mu.Lock()
+	c.versionMap = make(map[xdsresource.ResourceType]string)
+	c.nonceMap = make(map[xdsresource.ResourceType]string)
+	c.mu.Unlock()
+	for rt := range c.watchedResource {
+		req := c.prepareRequest(rt, false, "")
+		_ = c.adsStream.Send(req)
+	}
 	return nil
 }
 
@@ -274,9 +298,6 @@ func (c *xdsClient) recv() (resp *discoveryv3.DiscoveryResponse, err error) {
 		return nil, err
 	}
 	resp, err = sc.Recv()
-	if err != nil {
-		c.reconnect()
-	}
 	return resp, err
 }
 
@@ -466,6 +487,7 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 // prepareRequest prepares a new request for the specified resource type
 // ResourceNames should include all the subscribed resources of the specified type
 func (c *xdsClient) prepareRequest(rType xdsresource.ResourceType, ack bool, errMsg string) *discoveryv3.DiscoveryRequest {
+	// TODO: avoid lock here
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

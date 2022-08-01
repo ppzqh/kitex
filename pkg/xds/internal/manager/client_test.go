@@ -135,7 +135,7 @@ func Test_xdsClient_handleResponse(t *testing.T) {
 		&xdsResourceManager{
 			cache:       map[xdsresource.ResourceType]map[string]xdsresource.Resource{},
 			meta:        make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta),
-			notifierMap: make(map[xdsresource.ResourceType]map[string][]*notifier),
+			notifierMap: make(map[xdsresource.ResourceType]map[string]*notifier),
 			mu:          sync.Mutex{},
 			dumpPath:    defaultDumpPath,
 		},

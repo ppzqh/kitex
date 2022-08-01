@@ -241,3 +241,40 @@ func Test_xdsResourceManager_getFromCache(t *testing.T) {
 	res, ok = m.getFromCache(xdsresource.ClusterType, "randomCluster")
 	test.Assert(t, ok == false)
 }
+
+func Test_xdsResourceManager_ConcurrentGet(t *testing.T) {
+	svr := mock.StartXDSServer(XdsSercerAddress)
+	defer func() {
+		if svr != nil {
+			_ = svr.Stop()
+		}
+	}()
+	m, initErr := NewXDSResourceManager(XdsBootstrapConfig)
+	test.Assert(t, initErr == nil)
+
+	g := func(t2 *testing.T) {
+		_, err := m.Get(context.Background(), xdsresource.ListenerType, xdsresource.ListenerName1)
+		test.Assert(t2, err == nil)
+		_, err = m.Get(context.Background(), xdsresource.ListenerType, "randomListener")
+		test.Assert(t2, err != nil)
+
+		_, err = m.Get(context.Background(), xdsresource.RouteConfigType, xdsresource.RouteConfigName1)
+		test.Assert(t2, err == nil)
+		_, err = m.Get(context.Background(), xdsresource.RouteConfigType, "randomRouteConfig")
+		test.Assert(t2, err != nil)
+
+		_, err = m.Get(context.Background(), xdsresource.ClusterType, xdsresource.ClusterName1)
+		test.Assert(t2, err == nil)
+		_, err = m.Get(context.Background(), xdsresource.ClusterType, "randomCluster")
+		test.Assert(t2, err != nil)
+
+		_, err = m.Get(context.Background(), xdsresource.EndpointsType, xdsresource.EndpointName1)
+		test.Assert(t2, err == nil)
+		_, err = m.Get(context.Background(), xdsresource.EndpointsType, "randomEndpoints")
+		test.Assert(t2, err != nil)
+	}
+
+	for i := 0; i < 10; i++ {
+		go g(t)
+	}
+}
