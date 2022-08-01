@@ -9,7 +9,15 @@ import (
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
 )
 
+// XDSResolver uses xdsResourceManager to get endpoints.
 type XDSResolver struct {
+	manager XDSResourceManager
+}
+
+func NewXDSResolver() *XDSResolver {
+	return &XDSResolver{
+		manager: xdsResourceManager,
+	}
 }
 
 // Target should return a description for the given target that is suitable for being a key for cache.
@@ -24,7 +32,7 @@ func (r *XDSResolver) Target(ctx context.Context, target rpcinfo.EndpointInfo) (
 
 // Resolve returns a list of instances for the given description of a target.
 func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Result, error) {
-	eps, err := getEndpoints(ctx, desc)
+	eps, err := r.getEndpoints(ctx, desc)
 	if err != nil {
 		return discovery.Result{}, kerrors.ErrServiceDiscovery.WithCause(err)
 	}
@@ -41,12 +49,8 @@ func (r *XDSResolver) Resolve(ctx context.Context, desc string) (discovery.Resul
 }
 
 // getEndpoints gets endpoints for this desc from xdsResourceManager
-func getEndpoints(ctx context.Context, desc string) ([]*xdsresource.Endpoint, error) {
-	m, err := getXdsResourceManager()
-	if err != nil {
-		return nil, err
-	}
-	res, err := m.Get(ctx, xdsresource.ClusterType, desc)
+func (r *XDSResolver) getEndpoints(ctx context.Context, desc string) ([]*xdsresource.Endpoint, error) {
+	res, err := r.manager.Get(ctx, xdsresource.ClusterType, desc)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +59,7 @@ func getEndpoints(ctx context.Context, desc string) ([]*xdsresource.Endpoint, er
 	if cluster.InlineEndpoints != nil {
 		endpoints = cluster.InlineEndpoints
 	} else {
-		resource, err := m.Get(ctx, xdsresource.EndpointsType, cluster.EndpointName)
+		resource, err := r.manager.Get(ctx, xdsresource.EndpointsType, cluster.EndpointName)
 		if err != nil {
 			return nil, err
 		}

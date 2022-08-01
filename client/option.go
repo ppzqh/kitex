@@ -168,7 +168,7 @@ func WithXDSSuite() Option {
 		di.Push(fmt.Sprintf("WithXDSSuite"))
 
 		o.XDSEnabled = true
-		o.Resolver = &xdssuite.XDSResolver{}
+		o.Resolver = xdssuite.NewXDSResolver()
 	}}
 }
 

@@ -23,17 +23,20 @@ type RouteResult struct {
 	// TODO: retry policy also in RDS
 }
 
-type XDSRouter struct{}
+// XDSRouter is a router that uses xds to route the rpc call
+type XDSRouter struct {
+	manager XDSResourceManager
+}
+
+func NewXDSRouter() *XDSRouter {
+	return &XDSRouter{
+		manager: xdsResourceManager,
+	}
+}
 
 // Route routes the rpc call to a cluster based on the RPCInfo
 func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult, error) {
-	//rc, err := getRouteConfig(ctx, ri)
-	//if err != nil {
-	//	return nil, kerrors.ErrXDSRoute.WithCause(err)
-	//}
-	//matchedRoute := matchRoute(ri, rc)
-
-	route, err := getRoute(ctx, ri)
+	route, err := r.getRoute(ctx, ri)
 	// no matched route
 	if err != nil {
 		return nil, kerrors.ErrXDSRoute.WithCause(fmt.Errorf("no matched route for service %s", ri.To().ServiceName()))
@@ -50,14 +53,10 @@ func (r *XDSRouter) Route(ctx context.Context, ri rpcinfo.RPCInfo) (*RouteResult
 }
 
 // getRouteConfig gets the route config from xdsResourceManager
-func getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, error) {
-	m, err := getXdsResourceManager()
-	if err != nil {
-		return nil, err
-	}
+func (r *XDSRouter) getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, error) {
 	// use serviceName as the listener name
 	ln := ri.To().ServiceName()
-	lds, err := m.Get(ctx, xdsresource.ListenerType, ln)
+	lds, err := r.manager.Get(ctx, xdsresource.ListenerType, ln)
 	if err != nil {
 		return nil, fmt.Errorf("get listener failed: %v", err)
 	}
@@ -92,42 +91,29 @@ func getRoute(ctx context.Context, ri rpcinfo.RPCInfo) (*xdsresource.Route, erro
 		}
 	}
 	// Get the route config
-	rds, err := m.Get(ctx, xdsresource.RouteConfigType, http.RouteConfigName)
+	rds, err := r.manager.Get(ctx, xdsresource.RouteConfigType, http.RouteConfigName)
 	if err != nil {
 		return nil, fmt.Errorf("get route failed: %v", err)
 	}
 	rcfg := rds.(*xdsresource.RouteConfigResource)
-	r := matchHTTPRoute(ri, rcfg)
-	if r != nil {
-		return r, nil
+	rt := matchHTTPRoute(ri, rcfg)
+	if rt != nil {
+		return rt, nil
 	}
 	return nil, fmt.Errorf("no matched route")
 }
 
-//// matchRoute matches one route in the provided routeConfig based on information in RPCInfo
-//func matchRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
-//	// If using GRPC, match the HTTP route
-//	if ri.Config().TransportProtocol() == transport.GRPC {
-//		return matchHTTPRoute(ri, routeConfig)
-//	}
-//	// Or, match thrift route first
-//	r := matchThriftRoute(ri, routeConfig)
-//	if r != nil {
-//		return r
-//	}
-//	// fallback to http route if thrift route is not configured
-//	return matchHTTPRoute(ri, routeConfig)
-//}
-
 // matchHTTPRoute matches one http route
 func matchHTTPRoute(ri rpcinfo.RPCInfo, routeConfig *xdsresource.RouteConfigResource) *xdsresource.Route {
 	if rcfg := routeConfig.HttpRouteConfig; rcfg != nil {
-		// path defined in the virtual services should be ${serviceName}/${methodName}
 		var svcName string
-		if ri.Invocation() != nil {
+		if ri.Invocation().PackageName() == "" {
 			svcName = ri.Invocation().ServiceName()
+		} else {
+			svcName = fmt.Sprintf("%s.%s", ri.Invocation().PackageName(), ri.Invocation().ServiceName())
 		}
-		path := svcName + "/" + ri.To().Method()
+		// path defined in the virtual services should be ${serviceName}/${methodName}
+		path := fmt.Sprintf("/%s/%s", svcName, ri.Invocation().MethodName())
 		// match
 		for _, vh := range rcfg.VirtualHosts {
 			// skip the domain match now.

@@ -71,7 +71,7 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	m.warmup()
 
 	// start the cache cleaner
-	go m.cleaner()
+	//go m.cleaner()
 	return m, nil
 }
 
