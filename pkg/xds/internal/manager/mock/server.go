@@ -77,7 +77,6 @@ func (svr *testAdsService) StreamAggregatedResources(stream discoveryv3.Aggregat
 	errCh := make(chan error, 2)
 	stopCh := make(chan struct{})
 	defer close(stopCh)
-
 	// receive the request
 	go func() {
 		for {

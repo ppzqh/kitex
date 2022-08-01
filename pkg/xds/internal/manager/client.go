@@ -63,11 +63,13 @@ func newNdsResolver() *ndsResolver {
 	}
 }
 
+// ndsResolver is used to resolve the clusterIP, using NDS.
 type ndsResolver struct {
 	lookupTable map[string][]string
 	mu          sync.Mutex
 }
 
+// lookupHost returns the clusterIP of the given hostname.
 func (r *ndsResolver) lookupHost(host string) ([]string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -75,6 +77,7 @@ func (r *ndsResolver) lookupHost(host string) ([]string, bool) {
 	return ips, ok
 }
 
+// updateResource updates the lookup table based on the NDS response.
 func (r *ndsResolver) updateLookupTable(up map[string][]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

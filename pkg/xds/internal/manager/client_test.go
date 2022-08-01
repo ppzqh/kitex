@@ -56,6 +56,27 @@ func Test_newXdsClient(t *testing.T) {
 	test.Assert(t, err == nil)
 }
 
+func Test_xdsClient_closeStream(t *testing.T) {
+	address := ":8888"
+	svr := mock.StartXDSServer(address)
+	defer func() {
+		if svr != nil {
+			_ = svr.Stop()
+		}
+	}()
+	c, err := newXdsClient(
+		&BootstrapConfig{
+			node:      &v3core.Node{},
+			xdsSvrCfg: &XDSServerConfig{serverAddress: address},
+		},
+		nil,
+	)
+	test.Assert(t, err == nil)
+	c.Watch(xdsresource.ListenerType, "")
+	_, err = c.recv()
+	test.Assert(t, err == nil)
+}
+
 func Test_xdsClient_prepareRequest(t *testing.T) {
 	c := &xdsClient{
 		config: XdsBootstrapConfig,

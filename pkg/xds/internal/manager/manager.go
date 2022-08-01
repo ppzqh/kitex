@@ -71,7 +71,7 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	m.warmup()
 
 	// start the cache cleaner
-	//go m.cleaner()
+	go m.cleaner()
 	return m, nil
 }
 
@@ -130,8 +130,8 @@ func (m *xdsResourceManager) Get(ctx context.Context, rType xdsresource.Resource
 	if !ok {
 		// only send one request for this resource
 		m.client.Watch(rType, rName)
-		m.notifierMap[rType][rName] = &notifier{ch: make(chan struct{})}
-		nf = m.notifierMap[rType][rName]
+		nf = &notifier{ch: make(chan struct{})}
+		m.notifierMap[rType][rName] = nf
 	}
 	m.mu.Unlock()
 
@@ -263,11 +263,11 @@ func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.L
 			delete(m.cache[xdsresource.ListenerType], name)
 		}
 	}
-	// notify all watchers that the resource is not in the new update
-	for name, nf := range m.notifierMap[xdsresource.ListenerType] {
-		nf.notify(ErrResourceNotFound)
-		delete(m.notifierMap[xdsresource.ListenerType], name)
-	}
+	//// notify all watchers that the resource is not in the new update
+	//for name, nf := range m.notifierMap[xdsresource.ListenerType] {
+	//	nf.notify(ErrResourceNotFound)
+	//	delete(m.notifierMap[xdsresource.ListenerType], name)
+	//}
 	// update meta
 	m.updateMeta(xdsresource.ListenerType, version)
 }
@@ -296,11 +296,11 @@ func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresourc
 			delete(m.cache[xdsresource.RouteConfigType], name)
 		}
 	}
-	// notify all watchers that the resource is not in the new update
-	for name, nf := range m.notifierMap[xdsresource.RouteConfigType] {
-		nf.notify(ErrResourceNotFound)
-		delete(m.notifierMap[xdsresource.RouteConfigType], name)
-	}
+	//// notify all watchers that the resource is not in the new update
+	//for name, nf := range m.notifierMap[xdsresource.RouteConfigType] {
+	//	nf.notify(ErrResourceNotFound)
+	//	delete(m.notifierMap[xdsresource.RouteConfigType], name)
+	//}
 	// update meta
 	m.updateMeta(xdsresource.RouteConfigType, version)
 }
@@ -329,11 +329,11 @@ func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.Cl
 			delete(m.cache[xdsresource.ClusterType], name)
 		}
 	}
-	// notify all watchers that the resource is not in the new update
-	for name, nf := range m.notifierMap[xdsresource.ClusterType] {
-		nf.notify(ErrResourceNotFound)
-		delete(m.notifierMap[xdsresource.ClusterType], name)
-	}
+	//// notify all watchers that the resource is not in the new update
+	//for name, nf := range m.notifierMap[xdsresource.ClusterType] {
+	//	nf.notify(ErrResourceNotFound)
+	//	delete(m.notifierMap[xdsresource.ClusterType], name)
+	//}
 	// update meta
 	m.updateMeta(xdsresource.ClusterType, version)
 }
@@ -362,11 +362,11 @@ func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.
 			delete(m.cache[xdsresource.EndpointsType], name)
 		}
 	}
-	// notify all watchers that the resource is not in the new update
-	for name, nf := range m.notifierMap[xdsresource.EndpointsType] {
-		nf.notify(ErrResourceNotFound)
-		delete(m.notifierMap[xdsresource.EndpointsType], name)
-	}
+	//// notify all watchers that the resource is not in the new update
+	//for name, nf := range m.notifierMap[xdsresource.EndpointsType] {
+	//	nf.notify(ErrResourceNotFound)
+	//	delete(m.notifierMap[xdsresource.EndpointsType], name)
+	//}
 	// update meta
 	m.updateMeta(xdsresource.EndpointsType, version)
 }
