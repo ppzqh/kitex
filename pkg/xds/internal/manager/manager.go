@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/xds/internal/xdsresource"
@@ -27,7 +26,6 @@ type xdsResourceManager struct {
 	mu          sync.Mutex
 
 	// dumpPath is the path to dump the cached resource.
-	// TODO: refactor dump logic
 	dumpPath string
 }
 
@@ -67,16 +65,10 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig) (*xdsResourceManage
 	}
 
 	m.client = cli
-	// init request to activate dns proxy
-	m.warmup()
 
 	// start the cache cleaner
 	go m.cleaner()
 	return m, nil
-}
-
-func (m *xdsResourceManager) warmup() {
-	m.client.warmup()
 }
 
 // getFromCache returns the resource from cache and update the access time in the meta
@@ -89,10 +81,11 @@ func (m *xdsResourceManager) getFromCache(rType xdsresource.ResourceType, rName 
 		return nil, false
 	}
 
-	now := time.Now()
-	res, ok := m.cache[rType][rName]
-	if ok {
+	if res, ok := m.cache[rType][rName]; !ok {
+		return nil, false
+	} else {
 		// Record the timestamp
+		now := time.Now()
 		if _, ok := m.meta[rType]; !ok {
 			m.meta[rType] = make(map[string]*xdsresource.ResourceMeta)
 		}
@@ -103,8 +96,8 @@ func (m *xdsResourceManager) getFromCache(rType xdsresource.ResourceType, rName 
 				LastAccessTime: now,
 			}
 		}
+		return res, true
 	}
-	return res, ok
 }
 
 // Get gets the specified resource from cache or from the control plane.
@@ -172,6 +165,7 @@ func (m *xdsResourceManager) cleaner() {
 			}
 		}
 		m.mu.Unlock()
+		t.Reset(defaultRefreshInterval)
 	}
 }
 
@@ -230,9 +224,9 @@ func (m *xdsResourceManager) updateMeta(rType xdsresource.ResourceType, version 
 	}
 }
 
-var (
-	ErrResourceNotFound = errors.New("resource not found in the latest xds response")
-)
+//var (
+//	ErrResourceNotFound = errors.New("resource not found in the latest xds response")
+//)
 
 /**
  	The following functions are invoked by xds client to update the cache.

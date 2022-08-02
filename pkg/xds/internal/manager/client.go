@@ -58,15 +58,17 @@ type xdsClient struct {
 
 func newNdsResolver() *ndsResolver {
 	return &ndsResolver{
-		mu:          sync.Mutex{},
-		lookupTable: make(map[string][]string),
+		mu:            sync.Mutex{},
+		lookupTable:   make(map[string][]string),
+		initRequestCh: make(chan struct{}),
 	}
 }
 
 // ndsResolver is used to resolve the clusterIP, using NDS.
 type ndsResolver struct {
-	lookupTable map[string][]string
-	mu          sync.Mutex
+	lookupTable   map[string][]string
+	mu            sync.Mutex
+	initRequestCh chan struct{}
 }
 
 // lookupHost returns the clusterIP of the given hostname.
@@ -81,6 +83,9 @@ func (r *ndsResolver) lookupHost(host string) ([]string, bool) {
 func (r *ndsResolver) updateLookupTable(up map[string][]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.initRequestCh != nil {
+		close(r.initRequestCh)
+	}
 	r.lookupTable = up
 }
 
@@ -107,7 +112,7 @@ func newXdsClient(bCfg *BootstrapConfig, updater *xdsResourceManager) (*xdsClien
 		config:          bCfg,
 		adsClient:       ac,
 		watchedResource: make(map[xdsresource.ResourceType]map[string]bool),
-		cipResolver:     newNdsResolver(), //newClusterIPResolver(),
+		cipResolver:     newNdsResolver(),
 		versionMap:      make(map[xdsresource.ResourceType]string),
 		nonceMap:        make(map[xdsresource.ResourceType]string),
 		resourceUpdater: updater,
@@ -156,62 +161,60 @@ func (c *xdsClient) sender() {
 	timer := time.NewTicker(c.refreshInterval)
 
 	// sender
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				klog.Errorf("[XDS] client: run sender panic, error=%s", err)
-			}
-		}()
-
-		for {
-			select {
-			case <-c.closeCh:
-				klog.Infof("[XDS] client: stop ads client sender")
-				return
-			case <-timer.C:
-				//c.refresh()
-				timer.Reset(c.refreshInterval)
-			}
+	defer func() {
+		if err := recover(); err != nil {
+			klog.Errorf("[XDS] client: run sender panic, error=%s", err)
 		}
 	}()
+
+	for {
+		select {
+		case <-c.closeCh:
+			klog.Infof("[XDS] client: stop ads client sender")
+			return
+		case <-timer.C:
+			//c.refresh()
+			timer.Reset(c.refreshInterval)
+		}
+	}
+
 }
 
 // receiver receives and handle response from the xds server.
 // xds server may proactively push the update.
 func (c *xdsClient) receiver() {
 	// receiver
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				klog.Errorf("[XDS] client: run receiver panic, error=%s", err)
-			}
-		}()
-
-		for {
-			select {
-			case <-c.closeCh:
-				klog.Infof("[XDS] client: stop ads client receiver")
-				return
-			default:
-			}
-			resp, err := c.recv()
-			if err != nil {
-				klog.Errorf("[XDS] client, receive failed, error=%s", err)
-				c.reconnect()
-				continue
-			}
-			err = c.handleResponse(resp)
-			if err != nil {
-				klog.Errorf("[XDS] client, handle response failed, error=%s", err)
-			}
+	defer func() {
+		if err := recover(); err != nil {
+			klog.Errorf("[XDS] client: run receiver panic, error=%s", err)
 		}
 	}()
+
+	for {
+		select {
+		case <-c.closeCh:
+			klog.Infof("[XDS] client: stop ads client receiver")
+			return
+		default:
+		}
+		resp, err := c.recv()
+		if err != nil {
+			klog.Errorf("[XDS] client, receive failed, error=%s", err)
+			c.reconnect()
+			continue
+		}
+		err = c.handleResponse(resp)
+		if err != nil {
+			klog.Errorf("[XDS] client, handle response failed, error=%s", err)
+		}
+	}
 }
 
 func (c *xdsClient) run() {
 	// two goroutines for sender and receiver
-	c.sender()
-	c.receiver()
+	go c.sender()
+	go c.receiver()
+	c.warmup()
 }
 
 // close the xdsClient
@@ -320,9 +323,13 @@ func (c *xdsClient) updateAndACK(rType xdsresource.ResourceType, nonce, version 
 	c.sendRequest(rType, true, errMsg)
 }
 
+// warmup sends the requests (NDS) to the xds server and waits for the response to set the lookup table.
 func (c *xdsClient) warmup() {
 	// watch the NameTable when init the xds client
 	c.Watch(xdsresource.NameTableType, "")
+	<-c.cipResolver.initRequestCh
+	klog.Infof("[XDS] client, warmup done")
+	c.cipResolver.initRequestCh = nil
 	// TODO: maybe need to watch the listener
 }
 
@@ -450,7 +457,6 @@ func (c *xdsClient) handleNDS(resp *discoveryv3.DiscoveryResponse) error {
 
 // handleResponse handles the response from xDS server
 func (c *xdsClient) handleResponse(msg interface{}) error {
-	// TODO: check why the msg received from the stream is nil
 	if msg == nil {
 		return nil
 	}
@@ -462,11 +468,21 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	url := resp.GetTypeUrl()
 	rType, ok := xdsresource.ResourceUrlToType[url]
 	if !ok {
-		return fmt.Errorf("unknown type of resource, url: %s", url)
+		klog.Warnf("unknown type of resource, url: %s", url)
+		return nil
 	}
+
+	c.mu.Lock()
 	if _, ok := c.watchedResource[rType]; !ok {
 		c.watchedResource[rType] = make(map[string]bool)
 	}
+	// ignore the duplicated response
+	if c.versionMap[rType] == resp.VersionInfo {
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+
 	/*
 		handle different resources:
 		unmarshal resources and ack, update to cache if no error

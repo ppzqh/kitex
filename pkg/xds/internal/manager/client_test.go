@@ -56,27 +56,6 @@ func Test_newXdsClient(t *testing.T) {
 	test.Assert(t, err == nil)
 }
 
-func Test_xdsClient_closeStream(t *testing.T) {
-	address := ":8888"
-	svr := mock.StartXDSServer(address)
-	defer func() {
-		if svr != nil {
-			_ = svr.Stop()
-		}
-	}()
-	c, err := newXdsClient(
-		&BootstrapConfig{
-			node:      &v3core.Node{},
-			xdsSvrCfg: &XDSServerConfig{serverAddress: address},
-		},
-		nil,
-	)
-	test.Assert(t, err == nil)
-	c.Watch(xdsresource.ListenerType, "")
-	_, err = c.recv()
-	test.Assert(t, err == nil)
-}
-
 func Test_xdsClient_prepareRequest(t *testing.T) {
 	c := &xdsClient{
 		config: XdsBootstrapConfig,
@@ -148,27 +127,31 @@ func Test_xdsClient_prepareRequest(t *testing.T) {
 }
 
 func Test_xdsClient_handleResponse(t *testing.T) {
-	c, err := newXdsClient(
-		&BootstrapConfig{
+	// inject mock
+	c := &xdsClient{
+		config: &BootstrapConfig{
 			node:      NodeProto,
 			xdsSvrCfg: XdsServerConfig,
 		},
-		&xdsResourceManager{
+		adsClient:       &mockADSClient{},
+		watchedResource: make(map[xdsresource.ResourceType]map[string]bool),
+		cipResolver:     newNdsResolver(),
+		versionMap:      make(map[xdsresource.ResourceType]string),
+		nonceMap:        make(map[xdsresource.ResourceType]string),
+		resourceUpdater: &xdsResourceManager{
 			cache:       map[xdsresource.ResourceType]map[string]xdsresource.Resource{},
 			meta:        make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta),
 			notifierMap: make(map[xdsresource.ResourceType]map[string]*notifier),
 			mu:          sync.Mutex{},
 			dumpPath:    defaultDumpPath,
 		},
-	)
+		refreshInterval: defaultRefreshInterval,
+		closeCh:         make(chan struct{}),
+	}
 	defer c.close()
-	// inject mock
-	c.adsClient = &mockADSClient{}
-
-	test.Assert(t, err == nil)
 
 	// handle the response that includes resources that are not in the subscribed list
-	err = c.handleResponse(mock.LdsResp1)
+	err := c.handleResponse(mock.LdsResp1)
 	test.Assert(t, err == nil)
 	test.Assert(t, c.versionMap[xdsresource.ListenerType] == mock.LDSVersion1)
 	test.Assert(t, c.nonceMap[xdsresource.ListenerType] == mock.LDSNonce1)
