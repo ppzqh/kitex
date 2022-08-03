@@ -465,6 +465,9 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid discovery response")
 	}
+
+	klog.Debugf("[XDS] client, handleResponse, msg=%s\n", resp.String())
+
 	url := resp.GetTypeUrl()
 	rType, ok := xdsresource.ResourceUrlToType[url]
 	if !ok {

@@ -135,6 +135,7 @@ func (m *xdsResourceManager) Get(ctx context.Context, rType xdsresource.Resource
 
 	select {
 	case <-nf.ch:
+		m.Dump()
 	case <-t.C:
 		return nil, fmt.Errorf("[XDS] manager, fetch %s resource[%s] failed, timeout %s",
 			xdsresource.ResourceTypeToName[rType], rName, timeout)
