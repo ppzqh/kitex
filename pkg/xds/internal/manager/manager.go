@@ -135,7 +135,6 @@ func (m *xdsResourceManager) Get(ctx context.Context, rType xdsresource.Resource
 
 	select {
 	case <-nf.ch:
-		m.Dump()
 	case <-t.C:
 		return nil, fmt.Errorf("[XDS] manager, fetch %s resource[%s] failed, timeout %s",
 			xdsresource.ResourceTypeToName[rType], rName, timeout)
@@ -237,7 +236,6 @@ func (m *xdsResourceManager) updateMeta(rType xdsresource.ResourceType, version 
 // UpdateListenerResource is invoked by client to update the cache
 func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.ListenerResource, version string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	for name, res := range up {
 		if _, ok := m.cache[xdsresource.ListenerType]; !ok {
@@ -265,12 +263,13 @@ func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.L
 	//}
 	// update meta
 	m.updateMeta(xdsresource.ListenerType, version)
+	m.mu.Unlock()
+	m.Dump()
 }
 
 // UpdateRouteConfigResource is invoked by client to update the cache
 func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresource.RouteConfigResource, version string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	for name, res := range up {
 		if _, ok := m.cache[xdsresource.RouteConfigType]; !ok {
@@ -298,12 +297,13 @@ func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresourc
 	//}
 	// update meta
 	m.updateMeta(xdsresource.RouteConfigType, version)
+	m.mu.Unlock()
+	m.Dump()
 }
 
 // UpdateClusterResource is invoked by client to update the cache
 func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.ClusterResource, version string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	for name, res := range up {
 		if _, ok := m.cache[xdsresource.ClusterType]; !ok {
@@ -331,12 +331,13 @@ func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.Cl
 	//}
 	// update meta
 	m.updateMeta(xdsresource.ClusterType, version)
+	m.mu.Unlock()
+	m.Dump()
 }
 
 // UpdateEndpointsResource is invoked by client to update the cache
 func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.EndpointsResource, version string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	for name, res := range up {
 		if _, ok := m.cache[xdsresource.EndpointsType]; !ok {
@@ -364,4 +365,6 @@ func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.
 	//}
 	// update meta
 	m.updateMeta(xdsresource.EndpointsType, version)
+	m.mu.Unlock()
+	m.Dump()
 }
