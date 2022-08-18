@@ -162,6 +162,9 @@ func (m *xdsResourceManager) cleaner() {
 		case <-t.C:
 			m.mu.Lock()
 			for rt := range m.meta {
+				//if rt == xdsresource.ListenerType || rt == xdsresource.RouteConfigType {
+				//	continue
+				//}
 				for rName, meta := range m.meta[rt] {
 					t := meta.LastAccessTime.Load().(time.Time)
 					if time.Since(t) > defaultCacheExpireTime {

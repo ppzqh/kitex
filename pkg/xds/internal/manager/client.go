@@ -154,7 +154,6 @@ func (c *xdsClient) Watch(rType xdsresource.ResourceType, rName string) {
 	c.mu.Unlock()
 	// send request for this resource
 	c.sendRequest(rType, false, "")
-	klog.Infof("[XDS] client: watch %s %s", rType, rName)
 }
 
 // RemoveWatch removes a resource from the watch map.
@@ -509,6 +508,7 @@ func (c *xdsClient) handleResponse(msg interface{}) error {
 	var err error
 	switch rType {
 	case xdsresource.ListenerType:
+		klog.Infof("[XDS] client, handle listener response: %s", resp.String())
 		err = c.handleLDS(resp)
 	case xdsresource.RouteConfigType:
 		err = c.handleRDS(resp)
