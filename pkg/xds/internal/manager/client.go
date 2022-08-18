@@ -154,18 +154,23 @@ func (c *xdsClient) Watch(rType xdsresource.ResourceType, rName string) {
 	c.mu.Unlock()
 	// send request for this resource
 	c.sendRequest(rType, false, "")
+	klog.Infof("[XDS] client: watch %s %s", rType, rName)
 }
 
 // RemoveWatch removes a resource from the watch map.
 func (c *xdsClient) RemoveWatch(rType xdsresource.ResourceType, rName string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if _, ok := c.watchedResource[rType]; !ok {
+		c.mu.Unlock()
 		return
 	}
 	// remove this resource
 	delete(c.watchedResource[rType], rName)
+	c.mu.Unlock()
+
+	// send request for this resource
+	c.sendRequest(rType, false, "")
+	klog.Infof("[XDS] client: remove watch %s %s", rType, rName)
 }
 
 // refresh all resources
@@ -369,6 +374,7 @@ func (c *xdsClient) getListenerName(rName string) (string, error) {
 
 // handleLDS handles the lds response
 func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
+	klog.Infof("[XDS] client, handle lds response")
 	res, err := xdsresource.UnmarshalLDS(resp.GetResources())
 	c.updateAndACK(xdsresource.ListenerType, resp.GetNonce(), resp.GetVersionInfo(), err)
 	if err != nil {
@@ -379,7 +385,6 @@ func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 	// which should be converted into to the listener name, in the form of ${fqdn}_${port}, watched by the xds client.
 	// we need to filter the response.
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	filteredRes := make(map[string]*xdsresource.ListenerResource)
 	for n := range c.watchedResource[xdsresource.ListenerType] {
 		ln, err := c.getListenerName(n)
@@ -391,6 +396,7 @@ func (c *xdsClient) handleLDS(resp *discoveryv3.DiscoveryResponse) error {
 			filteredRes[n] = lis
 		}
 	}
+	c.mu.RUnlock()
 	// update to cache
 	c.resourceUpdater.UpdateListenerResource(filteredRes, resp.GetVersionInfo())
 	return nil
@@ -406,13 +412,13 @@ func (c *xdsClient) handleRDS(resp *discoveryv3.DiscoveryResponse) error {
 
 	// filter the resources that are not in the watched list
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	for name := range res {
 		// only accept the routeConfig that is subscribed
 		if _, ok := c.watchedResource[xdsresource.RouteConfigType][name]; !ok {
 			delete(res, name)
 		}
 	}
+	c.mu.RUnlock()
 	// update to cache
 	c.resourceUpdater.UpdateRouteConfigResource(res, resp.GetVersionInfo())
 	return nil
@@ -428,12 +434,12 @@ func (c *xdsClient) handleCDS(resp *discoveryv3.DiscoveryResponse) error {
 
 	// filter the resources that are not in the watched list
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	for name := range res {
 		if _, ok := c.watchedResource[xdsresource.ClusterType][name]; !ok {
 			delete(res, name)
 		}
 	}
+	c.mu.RUnlock()
 	// update to cache
 	c.resourceUpdater.UpdateClusterResource(res, resp.GetVersionInfo())
 	return nil
@@ -449,12 +455,12 @@ func (c *xdsClient) handleEDS(resp *discoveryv3.DiscoveryResponse) error {
 
 	// filter the resources that are not in the watched list
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	for name := range res {
 		if _, ok := c.watchedResource[xdsresource.EndpointsType][name]; !ok {
 			delete(res, name)
 		}
 	}
+	c.mu.RUnlock()
 	// update to cache
 	c.resourceUpdater.UpdateEndpointsResource(res, resp.GetVersionInfo())
 	return nil

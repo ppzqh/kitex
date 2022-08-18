@@ -16,13 +16,16 @@
 
 package xdsresource
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
 
 type Resource interface{}
 
 type ResourceMeta struct {
 	Version        string
-	LastAccessTime time.Time
+	LastAccessTime atomic.Value
 	UpdateTime     time.Time
 }
 

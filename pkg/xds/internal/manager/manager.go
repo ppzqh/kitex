@@ -40,7 +40,7 @@ type xdsResourceManager struct {
 	meta  map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta
 	// notifierMap maintains the channel for notifying resource update
 	notifierMap map[xdsresource.ResourceType]map[string]*notifier
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	closeCh     chan struct{}
 
 	// options
@@ -66,7 +66,7 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig, opts ...Option) (*x
 		cache:       map[xdsresource.ResourceType]map[string]xdsresource.Resource{},
 		meta:        make(map[xdsresource.ResourceType]map[string]*xdsresource.ResourceMeta),
 		notifierMap: make(map[xdsresource.ResourceType]map[string]*notifier),
-		mu:          sync.Mutex{},
+		mu:          sync.RWMutex{},
 		opts:        NewOptions(opts),
 		closeCh:     make(chan struct{}),
 	}
@@ -91,31 +91,15 @@ func NewXDSResourceManager(bootstrapConfig *BootstrapConfig, opts ...Option) (*x
 
 // getFromCache returns the resource from cache and update the access time in the meta
 func (m *xdsResourceManager) getFromCache(rType xdsresource.ResourceType, rName string) (interface{}, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.cache[rType]; !ok {
-		m.cache[rType] = make(map[string]xdsresource.Resource)
-		return nil, false
-	}
-
-	if res, ok := m.cache[rType][rName]; !ok {
-		return nil, false
-	} else {
-		// Record the timestamp
-		now := time.Now()
-		if _, ok := m.meta[rType]; !ok {
-			m.meta[rType] = make(map[string]*xdsresource.ResourceMeta)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if _, ok1 := m.cache[rType]; ok1 {
+		if _, ok2 := m.cache[rType][rName]; ok2 {
+			m.meta[rType][rName].LastAccessTime.Store(time.Now())
+			return m.cache[rType][rName], true
 		}
-		if _, ok := m.meta[rType][rName]; ok {
-			m.meta[rType][rName].LastAccessTime = now
-		} else {
-			m.meta[rType][rName] = &xdsresource.ResourceMeta{
-				LastAccessTime: now,
-			}
-		}
-		return res, true
 	}
+	return nil, false
 }
 
 // Get gets the specified resource from cache or from the control plane.
@@ -139,10 +123,10 @@ func (m *xdsResourceManager) Get(ctx context.Context, rType xdsresource.Resource
 	}
 	nf, ok := m.notifierMap[rType][rName]
 	if !ok {
-		// only send one request for this resource
-		m.client.Watch(rType, rName)
 		nf = &notifier{ch: make(chan struct{})}
 		m.notifierMap[rType][rName] = nf
+		// only send one request for this resource
+		m.client.Watch(rType, rName)
 	}
 	m.mu.Unlock()
 	// Set fetch timeout
@@ -171,7 +155,7 @@ func (m *xdsResourceManager) Get(ctx context.Context, rType xdsresource.Resource
 
 // cleaner cleans the expired cache periodically
 func (m *xdsResourceManager) cleaner() {
-	t := time.NewTicker(defaultCacheExpireTime)
+	t := time.NewTicker(defaultCacheExpireTime*5)
 	defer t.Stop()
 	for {
 		select {
@@ -179,7 +163,8 @@ func (m *xdsResourceManager) cleaner() {
 			m.mu.Lock()
 			for rt := range m.meta {
 				for rName, meta := range m.meta[rt] {
-					if time.Since(meta.LastAccessTime) > defaultCacheExpireTime {
+					t := meta.LastAccessTime.Load().(time.Time)
+					if time.Since(t) > defaultCacheExpireTime {
 						delete(m.meta[rt], rName)
 						delete(m.cache[rt], rName)
 						m.client.RemoveWatch(rt, rName)
@@ -239,12 +224,6 @@ func (m *xdsResourceManager) updateMeta(rType xdsresource.ResourceType, version 
 			Version:    version,
 		}
 	}
-	// remove the meta of the resource that is not in the cache
-	for name := range m.meta[rType] {
-		if _, ok := m.cache[rType][name]; !ok {
-			delete(m.meta[rType], name)
-		}
-	}
 }
 
 //var (
@@ -279,11 +258,6 @@ func (m *xdsResourceManager) UpdateListenerResource(up map[string]*xdsresource.L
 			delete(m.cache[xdsresource.ListenerType], name)
 		}
 	}
-	//// notify all watchers that the resource is not in the new update
-	//for name, nf := range m.notifierMap[xdsresource.ListenerType] {
-	//	nf.notify(ErrResourceNotFound)
-	//	delete(m.notifierMap[xdsresource.ListenerType], name)
-	//}
 	// update meta
 	m.updateMeta(xdsresource.ListenerType, version)
 	m.mu.Unlock()
@@ -313,11 +287,6 @@ func (m *xdsResourceManager) UpdateRouteConfigResource(up map[string]*xdsresourc
 			delete(m.cache[xdsresource.RouteConfigType], name)
 		}
 	}
-	//// notify all watchers that the resource is not in the new update
-	//for name, nf := range m.notifierMap[xdsresource.RouteConfigType] {
-	//	nf.notify(ErrResourceNotFound)
-	//	delete(m.notifierMap[xdsresource.RouteConfigType], name)
-	//}
 	// update meta
 	m.updateMeta(xdsresource.RouteConfigType, version)
 	m.mu.Unlock()
@@ -347,11 +316,6 @@ func (m *xdsResourceManager) UpdateClusterResource(up map[string]*xdsresource.Cl
 			delete(m.cache[xdsresource.ClusterType], name)
 		}
 	}
-	//// notify all watchers that the resource is not in the new update
-	//for name, nf := range m.notifierMap[xdsresource.ClusterType] {
-	//	nf.notify(ErrResourceNotFound)
-	//	delete(m.notifierMap[xdsresource.ClusterType], name)
-	//}
 	// update meta
 	m.updateMeta(xdsresource.ClusterType, version)
 	m.mu.Unlock()
@@ -383,11 +347,6 @@ func (m *xdsResourceManager) UpdateEndpointsResource(up map[string]*xdsresource.
 	//	}
 	//}
 
-	//// notify all watchers that the resource is not in the new update
-	//for name, nf := range m.notifierMap[xdsresource.EndpointsType] {
-	//	nf.notify(ErrResourceNotFound)
-	//	delete(m.notifierMap[xdsresource.EndpointsType], name)
-	//}
 	// update meta
 	m.updateMeta(xdsresource.EndpointsType, version)
 	m.mu.Unlock()
