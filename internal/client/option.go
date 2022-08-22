@@ -106,7 +106,8 @@ type Options struct {
 	GRPCConnectOpts  *grpc.ConnectOptions
 
 	// XDS
-	XDSEnabled bool
+	XDSEnabled          bool
+	XDSRouterMiddleware endpoint.Middleware
 }
 
 // Apply applies all options.

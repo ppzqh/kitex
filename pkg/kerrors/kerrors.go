@@ -41,8 +41,8 @@ var (
 	// ErrRPCFinish happens when retry enabled and there is one call has finished
 	ErrRPCFinish = &basicError{"rpc call finished"}
 
-	// ErrXDSRoute happens when xds router fail to route this call
-	ErrXDSRoute = &basicError{"xds route failed"}
+	// ErrRoute happens when router fail to route this call
+	ErrRoute = &basicError{"rpc call route failed"}
 )
 
 // More detailed error types

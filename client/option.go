@@ -41,7 +41,6 @@ import (
 	"github.com/cloudwego/kitex/pkg/stats"
 	"github.com/cloudwego/kitex/pkg/utils"
 	"github.com/cloudwego/kitex/pkg/warmup"
-	"github.com/cloudwego/kitex/pkg/xds/xdssuite"
 	"github.com/cloudwego/kitex/transport"
 )
 
@@ -163,12 +162,13 @@ func WithHostPorts(hostports ...string) Option {
 	}}
 }
 
-func WithXDSSuite() Option {
+func WithXDSSuite(rm endpoint.Middleware, r discovery.Resolver) Option {
 	return Option{F: func(o *client.Options, di *utils.Slice) {
 		di.Push("WithXDSSuite")
 
 		o.XDSEnabled = true
-		o.Resolver = xdssuite.NewXDSResolver()
+		o.XDSRouterMiddleware = rm
+		o.Resolver = r
 	}}
 }
 
