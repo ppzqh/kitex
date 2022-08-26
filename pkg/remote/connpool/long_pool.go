@@ -20,7 +20,6 @@ package connpool
 import (
 	"context"
 	"net"
-	"reflect"
 	"sync"
 	"time"
 
@@ -75,13 +74,18 @@ func (c *longConn) IsActive() bool {
 	return time.Now().Before(c.deadline)
 }
 
-// Peer has one address, it manage all connections base on this address
+func (c *longConn) SetDeadline(t time.Time) error {
+	c.deadline = t
+	return nil
+}
+
 type peer struct {
-	serviceName    string
-	addr           net.Addr
-	ring           *utils.Ring
-	globalIdle     *utils.MaxCounter
-	maxIdleTimeout time.Duration
+	// info
+	serviceName string
+	addr        net.Addr
+	globalIdle  *utils.MaxCounter
+	// pool
+	pool *pool
 }
 
 func newPeer(
@@ -92,11 +96,18 @@ func newPeer(
 	globalIdle *utils.MaxCounter,
 ) *peer {
 	return &peer{
-		serviceName:    serviceName,
-		addr:           addr,
-		ring:           utils.NewRing(maxIdle),
-		globalIdle:     globalIdle,
-		maxIdleTimeout: maxIdleTimeout,
+		serviceName: serviceName,
+		addr:        addr,
+		globalIdle:  globalIdle,
+		pool: NewPool(
+			PoolConfig{
+				MaxNum:         maxIdle,
+				MinIdle:        0,
+				MaxIdle:        maxIdle,
+				MaxIdleTimeout: maxIdleTimeout,
+				Wait:           false,
+			},
+		),
 	}
 }
 
@@ -106,56 +117,46 @@ func (p *peer) Reset(addr net.Addr) {
 	p.Close()
 }
 
-// Get picks up connection from ring or dial a new one.
 func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, addr string) (net.Conn, error) {
-	for {
-		conn, _ := p.ring.Pop().(*longConn)
-		if conn == nil {
-			break
+	newer := func() (poolObject, error) {
+		conn, err := d.DialTimeout(p.addr.Network(), p.addr.String(), timeout)
+		if err != nil {
+			reporter.ConnFailed(Long, p.serviceName, p.addr)
+			return nil, err
 		}
+		reporter.ConnSucceed(Long, p.serviceName, p.addr)
+		return &longConn{
+			Conn:    conn,
+			address: addr,
+		}, nil
+	}
+	c, reused, err := p.pool.Get(newer)
+	if reused {
 		p.globalIdle.Dec()
-		if conn.IsActive() {
-			reporter.ReuseSucceed(Long, p.serviceName, p.addr)
-			return conn, nil
-		}
-		_ = conn.Conn.Close()
 	}
-	conn, err := d.DialTimeout(p.addr.Network(), p.addr.String(), timeout)
-	if err != nil {
-		reporter.ConnFailed(Long, p.serviceName, p.addr)
-		return nil, err
-	}
-	reporter.ConnSucceed(Long, p.serviceName, p.addr)
-	return &longConn{
-		Conn:     conn,
-		deadline: time.Now().Add(p.maxIdleTimeout),
-		address:  addr,
-	}, nil
+	return c.(net.Conn), err
 }
 
-func (p *peer) put(c *longConn) error {
+func (p *peer) Put(c *longConn) error {
 	if !p.globalIdle.Inc() {
-		return c.Conn.Close()
+		return nil
 	}
-	c.deadline = time.Now().Add(p.maxIdleTimeout)
-	err := p.ring.Push(c)
-	if err != nil {
+	if !p.pool.Put(c) {
 		p.globalIdle.Dec()
-		return c.Conn.Close()
 	}
 	return nil
 }
 
 // Close closes the peer and all the connections in the ring.
 func (p *peer) Close() {
-	for {
-		conn, _ := p.ring.Pop().(*longConn)
-		if conn == nil {
-			break
-		}
-		p.globalIdle.Dec()
-		_ = conn.Conn.Close()
-	}
+	//for {
+	//	conn, err := p.ring.Get(nil)
+	//	if conn == nil {
+	//		break
+	//	}
+	//	p.globalIdle.Dec()
+	//	_ = conn.Conn.Close()
+	//}
 }
 
 // LongPool manages a pool of long connections.
@@ -193,7 +194,7 @@ func (lp *LongPool) Put(conn net.Conn) error {
 	na := netAddr{addr.Network(), c.address}
 	p, ok := lp.peerMap.Load(na)
 	if ok {
-		p.(*peer).put(c)
+		p.(*peer).Put(c)
 		return nil
 	}
 	return c.Conn.Close()
@@ -220,15 +221,15 @@ func (lp *LongPool) Clean(network, address string) {
 // Dump is used to dump current long pool info when needed, like debug query.
 func (lp *LongPool) Dump() interface{} {
 	m := make(map[string]interface{})
-	lp.peerMap.Range(func(key, value interface{}) bool {
-		t := value.(*peer).ring.Dump()
-		arr := reflect.ValueOf(t).Elem().FieldByName("Array").Interface().([]interface{})
-		for i := range arr {
-			arr[i] = arr[i].(*longConn).deadline
-		}
-		m[key.(netAddr).String()] = t
-		return true
-	})
+	//lp.peerMap.Range(func(key, value interface{}) bool {
+	//	t := value.(*peer).ring.Dump()
+	//	arr := reflect.ValueOf(t).Elem().FieldByName("Array").Interface().([]interface{})
+	//	for i := range arr {
+	//		arr[i] = arr[i].(*longConn).deadline
+	//	}
+	//	m[key.(netAddr).String()] = t
+	//	return true
+	//})
 	return m
 }
 
