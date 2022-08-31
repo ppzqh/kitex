@@ -147,6 +147,10 @@ func (p *peer) Put(c *longConn) error {
 	return nil
 }
 
+func (p *peer) Evict() {
+	p.pool.Evict()
+}
+
 // Close closes the peer and all the connections in the ring.
 func (p *peer) Close() {
 	//for {
@@ -253,6 +257,14 @@ func (lp *LongPool) EnableReporter() {
 func (lp *LongPool) WarmUp(eh warmup.ErrorHandling, wuo *warmup.PoolOption, co remote.ConnOption) error {
 	h := &warmup.PoolHelper{ErrorHandling: eh}
 	return h.WarmUp(wuo, lp, co)
+}
+
+func (lp *LongPool) Evict() {
+	lp.peerMap.Range(func(key interface{}, value interface{}) bool {
+		p := value.(*peer)
+		p.Evict()
+		return true
+	})
 }
 
 // NewLongPool creates a long pool using the given IdleConfig.

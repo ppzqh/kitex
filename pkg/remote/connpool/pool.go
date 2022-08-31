@@ -123,3 +123,15 @@ func (p *pool) Put(c poolObject) bool {
 	p.mu.Unlock()
 	return recycled
 }
+
+func (p *pool) Evict() {
+	p.mu.Lock()
+	i := 0
+	for ; i < len(p.idleList); i++ {
+		if !p.idleList[i].IsActive() {
+			break
+		}
+	}
+	p.idleList = p.idleList[i:]
+	p.mu.Unlock()
+}
