@@ -63,7 +63,7 @@ func NewPool(cfg PoolConfig) *pool {
 		maxIdleTimeout: cfg.MaxIdleTimeout,
 	}
 	// TODO: where to set `wait`
-	cfg.Wait = true
+	//cfg.Wait = true
 	if cfg.Wait {
 		p.wait = true
 		chs := make(chan struct{}, cfg.MaxNum)
