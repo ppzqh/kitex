@@ -579,6 +579,35 @@ func TestLongConnPoolDump(t *testing.T) {
 	test.Assert(t, length == 1)
 }
 
+func TestLongConnPoolEvict(t *testing.T) {
+	idleTime := time.Millisecond * 100
+	d := &dialer.SynthesizedDialer{}
+	p := newLongPoolForTest(2, 3, idleTime)
+
+	d.DialFunc = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		na := utils.NewNetAddr(network, address)
+		return &mocks.Conn{
+			RemoteAddrFunc: func() net.Addr { return na },
+		}, nil
+	}
+
+	// get a new conn
+	conn, err := p.Get(context.TODO(), "tcp", mockAddr0, dialer.ConnOption{Dialer: d, ConnectTimeout: time.Second})
+	test.Assert(t, err == nil, err)
+
+	// put conn back to the pool
+	err = p.Put(conn)
+	test.Assert(t, err == nil, err)
+
+	// all idle connections should be evicted
+	time.Sleep(idleTime * 2)
+	p.peerMap.Range(func(key, value interface{}) bool {
+		v := value.(*peer)
+		test.Assert(t, v.Len() == 0)
+		return true
+	})
+}
+
 func BenchmarkLongPoolGetOne(b *testing.B) {
 	d := &dialer.SynthesizedDialer{
 		DialFunc: func(network, address string, timeout time.Duration) (net.Conn, error) {

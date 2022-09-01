@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package connpool
+package utils
 
 import (
 	"context"
@@ -22,9 +22,15 @@ import (
 	"time"
 )
 
-type poolObject interface {
+type PoolObject interface {
 	SetDeadline(time.Time) error
 	IsActive() bool
+	Close() error
+}
+
+type PoolStat struct {
+	TotalNum int
+	IdleNum  int
 }
 
 type PoolConfig struct {
@@ -36,28 +42,30 @@ type PoolConfig struct {
 	Wait bool
 }
 
-type pool struct {
-	idleList []poolObject
+type Pool struct {
+	idleList []PoolObject
 	mu       sync.RWMutex
-	closedCh chan struct{}
+	closedCh chan struct{} // unused for now
 
 	// config
 	maxIdle        int           // currIdle <= maxIdle. no limit if the value is set to zero.
 	minIdle        int           // currIdle >= minIdle.
-	maxNum         int           // currIdle + currInuse <= maxNum; maxNum can be the same with maxIdle..
+	maxNum         int           // currIdle + currInuse <= maxNum; maxNum can be the same with maxIdle.
 	maxIdleTimeout time.Duration // the idle connection will be cleaned if the idle time exceeds maxIdleTimeout.
 	evictFrequency time.Duration // the frequency to evict idle connections.
 	wait           bool          // indicate whether to wait for connections be put back into the pool if currNum == maxNum. default = false.
 	chs            chan struct{} // chs will be used for notification when there are available objects. cap(chs) should be maxNum.
 
 	// stat
-	currNum      int           // alive objects, idleList + objects in use.
+	// TODO: record all stats.
+	total        int           // alive objects, idleList + objects in use.
 	waitCount    int           // record the number of Get that were blocked due to the maxNum limit.
 	waitDuration time.Duration // record the waiting time of Get.
 }
 
-func NewPool(cfg PoolConfig) *pool {
-	p := &pool{
+func NewPool(cfg PoolConfig) *Pool {
+	p := &Pool{
+		idleList:       make([]PoolObject, 0, cfg.MaxIdle),
 		maxNum:         cfg.MaxNum,
 		maxIdle:        cfg.MaxIdle,
 		maxIdleTimeout: cfg.MaxIdleTimeout,
@@ -75,7 +83,7 @@ func NewPool(cfg PoolConfig) *pool {
 	return p
 }
 
-func (p *pool) Get(newer func() (poolObject, error)) (poolObject, bool, error) {
+func (p *Pool) Get(newer func() (PoolObject, error)) (obj PoolObject, reused bool, err error) {
 	if p.wait {
 		if !p.waitAvailable(context.Background()) {
 			return nil, false, nil
@@ -83,15 +91,24 @@ func (p *pool) Get(newer func() (poolObject, error)) (poolObject, bool, error) {
 	}
 
 	p.mu.Lock()
-	n := len(p.idleList)
-	if n > 0 {
-		c := p.idleList[n-1]
-		p.idleList = p.idleList[:n-1]
-		p.mu.Unlock()
-		return c, true, nil
+	// Get the first active one
+	i := len(p.idleList) - 1
+	for ; i >= 0; i-- {
+		c := p.idleList[i]
+		if c.IsActive() {
+			p.idleList = p.idleList[:i]
+			p.mu.Unlock()
+			return c, true, nil
+		}
 	}
+	// in case all objects are inactive
+	if i < 0 {
+		i = 0
+	}
+	p.idleList = p.idleList[:i]
 	p.mu.Unlock()
-	// create a new object
+
+	// construct a new object
 	c, err := newer()
 	if err != nil {
 		return nil, false, err
@@ -100,16 +117,17 @@ func (p *pool) Get(newer func() (poolObject, error)) (poolObject, bool, error) {
 	return c, false, nil
 }
 
-func (p *pool) waitAvailable(ctx context.Context) bool {
+func (p *Pool) waitAvailable(ctx context.Context) bool {
 	select {
 	case <-p.chs:
 		return true
+	// TODO: add timeout
 	case <-ctx.Done():
 		return false
 	}
 }
 
-func (p *pool) Put(c poolObject) bool {
+func (p *Pool) Put(c PoolObject) bool {
 	var recycled bool
 	p.mu.Lock()
 	if len(p.idleList) < p.maxIdle {
@@ -117,21 +135,51 @@ func (p *pool) Put(c poolObject) bool {
 		c.SetDeadline(time.Now().Add(p.maxIdleTimeout))
 		recycled = true
 	}
+	p.mu.Unlock()
 	if p.wait {
 		p.chs <- struct{}{}
 	}
-	p.mu.Unlock()
 	return recycled
 }
 
-func (p *pool) Evict() {
+func (p *Pool) Evict() {
 	p.mu.Lock()
 	i := 0
 	for ; i < len(p.idleList); i++ {
-		if !p.idleList[i].IsActive() {
+		if p.idleList[i].IsActive() {
 			break
 		}
 	}
 	p.idleList = p.idleList[i:]
 	p.mu.Unlock()
+}
+
+func (p *Pool) Len() int {
+	p.mu.Lock()
+	l := len(p.idleList)
+	p.mu.Unlock()
+	return l
+}
+
+func (p *Pool) Close() {
+	p.mu.Lock()
+	for i := 0; i < len(p.idleList); i++ {
+		p.idleList[i].Close()
+	}
+	p.idleList = nil
+	p.mu.Unlock()
+}
+
+func (p *Pool) Stat() PoolStat {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return PoolStat{
+		TotalNum: p.total,
+		IdleNum:  len(p.idleList),
+	}
+}
+
+func (p *Pool) Dump() interface{} {
+	return nil
 }

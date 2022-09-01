@@ -21,6 +21,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/kitex/pkg/connpool"
@@ -56,7 +57,7 @@ type longConn struct {
 
 // Close implements the net.Conn interface.
 func (c *longConn) Close() error {
-	return nil
+	return c.Conn.Close()
 }
 
 // RawConn returns the real underlying net.Conn.
@@ -85,7 +86,7 @@ type peer struct {
 	addr        net.Addr
 	globalIdle  *utils.MaxCounter
 	// pool
-	pool *pool
+	pool *utils.Pool
 }
 
 func newPeer(
@@ -99,8 +100,8 @@ func newPeer(
 		serviceName: serviceName,
 		addr:        addr,
 		globalIdle:  globalIdle,
-		pool: NewPool(
-			PoolConfig{
+		pool: utils.NewPool(
+			utils.PoolConfig{
 				MaxNum:         maxIdle,
 				MinIdle:        0,
 				MaxIdle:        maxIdle,
@@ -118,7 +119,7 @@ func (p *peer) Reset(addr net.Addr) {
 }
 
 func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, addr string) (net.Conn, error) {
-	newer := func() (poolObject, error) {
+	newer := func() (utils.PoolObject, error) {
 		conn, err := d.DialTimeout(p.addr.Network(), p.addr.String(), timeout)
 		if err != nil {
 			reporter.ConnFailed(Long, p.serviceName, p.addr)
@@ -131,6 +132,9 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		}, nil
 	}
 	c, reused, err := p.pool.Get(newer)
+	if err != nil {
+		return nil, err
+	}
 	if reused {
 		p.globalIdle.Dec()
 	}
@@ -147,20 +151,22 @@ func (p *peer) Put(c *longConn) error {
 	return nil
 }
 
+func (p *peer) Len() int {
+	return p.pool.Len()
+}
+
 func (p *peer) Evict() {
 	p.pool.Evict()
 }
 
 // Close closes the peer and all the connections in the ring.
 func (p *peer) Close() {
-	//for {
-	//	conn, err := p.ring.Get(nil)
-	//	if conn == nil {
-	//		break
-	//	}
-	//	p.globalIdle.Dec()
-	//	_ = conn.Conn.Close()
-	//}
+	// TODO: globalIdle
+	n := p.pool.Len()
+	for i := 0; i < n; i++ {
+		p.globalIdle.Dec()
+	}
+	p.pool.Close()
 }
 
 // LongPool manages a pool of long connections.
@@ -168,6 +174,9 @@ type LongPool struct {
 	reporter Reporter
 	peerMap  sync.Map
 	newPeer  func(net.Addr) *peer
+
+	closeCh chan struct{}
+	closed  int32
 }
 
 func (lp *LongPool) getPeer(addr netAddr) *peer {
@@ -225,20 +234,19 @@ func (lp *LongPool) Clean(network, address string) {
 // Dump is used to dump current long pool info when needed, like debug query.
 func (lp *LongPool) Dump() interface{} {
 	m := make(map[string]interface{})
-	//lp.peerMap.Range(func(key, value interface{}) bool {
-	//	t := value.(*peer).ring.Dump()
-	//	arr := reflect.ValueOf(t).Elem().FieldByName("Array").Interface().([]interface{})
-	//	for i := range arr {
-	//		arr[i] = arr[i].(*longConn).deadline
-	//	}
-	//	m[key.(netAddr).String()] = t
-	//	return true
-	//})
+	lp.peerMap.Range(func(key, value interface{}) bool {
+		t := value.(*peer).pool.Dump()
+		m[key.(netAddr).String()] = t
+		return true
+	})
 	return m
 }
 
 // Close releases all peers in the pool, it is executed when client is closed.
 func (lp *LongPool) Close() error {
+	if atomic.CompareAndSwapInt32(&lp.closed, 0, 1) {
+		close(lp.closeCh)
+	}
 	lp.peerMap.Range(func(addr, value interface{}) bool {
 		lp.peerMap.Delete(addr)
 		v := value.(*peer)
@@ -259,18 +267,24 @@ func (lp *LongPool) WarmUp(eh warmup.ErrorHandling, wuo *warmup.PoolOption, co r
 	return h.WarmUp(wuo, lp, co)
 }
 
-func (lp *LongPool) Evict() {
-	lp.peerMap.Range(func(key interface{}, value interface{}) bool {
-		p := value.(*peer)
-		p.Evict()
-		return true
-	})
+func (lp *LongPool) Evict(frequency time.Duration) {
+	t := time.NewTicker(frequency)
+	select {
+	case <-t.C:
+		lp.peerMap.Range(func(key interface{}, value interface{}) bool {
+			p := value.(*peer)
+			go p.Evict()
+			return true
+		})
+	case <-lp.closeCh:
+		return
+	}
 }
 
 // NewLongPool creates a long pool using the given IdleConfig.
 func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 	limit := utils.NewMaxCounter(idlConfig.MaxIdleGlobal)
-	return &LongPool{
+	lp := &LongPool{
 		reporter: &DummyReporter{},
 		newPeer: func(addr net.Addr) *peer {
 			return newPeer(
@@ -280,5 +294,10 @@ func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 				idlConfig.MaxIdleTimeout,
 				limit)
 		},
+		closeCh: make(chan struct{}),
+		closed:  0,
 	}
+
+	go lp.Evict(idlConfig.MaxIdleTimeout)
+	return lp
 }
