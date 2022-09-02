@@ -144,6 +144,7 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 
 func (p *peer) Put(c *longConn) error {
 	if !p.globalIdle.Inc() {
+		// TODO: pool.total should also be decreased in this case
 		return nil
 	}
 	if !p.pool.Put(c) {

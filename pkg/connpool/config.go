@@ -24,6 +24,8 @@ type IdleConfig struct {
 	MaxIdlePerAddress int
 	MaxIdleGlobal     int
 	MaxIdleTimeout    time.Duration
+	// TODO: how to set this?
+	Wait bool
 }
 
 const (
@@ -52,5 +54,8 @@ func CheckPoolConfig(config IdleConfig) *IdleConfig {
 		config.MaxIdleGlobal = config.MaxIdlePerAddress
 	}
 
+	if config.MinIdlePerAddress < 0 {
+		config.MinIdlePerAddress = 0
+	}
 	return &config
 }
