@@ -20,6 +20,7 @@ import "time"
 
 // IdleConfig contains idle configuration for long-connection pool.
 type IdleConfig struct {
+	MinIdlePerAddress int
 	MaxIdlePerAddress int
 	MaxIdleGlobal     int
 	MaxIdleTimeout    time.Duration

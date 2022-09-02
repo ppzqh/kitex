@@ -65,19 +65,19 @@ func (c *longConn) RawConn() net.Conn {
 	return c.Conn
 }
 
-// IsActive indicates whether the connection is active.
+// IsActive indicates whether the connection is active. It will not check the deadline.
 func (c *longConn) IsActive() bool {
 	if conn, ok := c.Conn.(remote.IsActive); ok {
-		if !conn.IsActive() {
-			return false
+		if conn.IsActive() {
+			return true
 		}
 	}
-	return time.Now().Before(c.deadline)
+	return false
 }
 
-func (c *longConn) SetDeadline(t time.Time) error {
-	c.deadline = t
-	return nil
+// Expired indicates the connection exceeds the deadline.
+func (c *longConn) Expired() bool {
+	return time.Now().After(c.deadline)
 }
 
 type peer struct {
@@ -92,6 +92,7 @@ type peer struct {
 func newPeer(
 	serviceName string,
 	addr net.Addr,
+	minIdle int,
 	maxIdle int,
 	maxIdleTimeout time.Duration,
 	globalIdle *utils.MaxCounter,
@@ -103,7 +104,7 @@ func newPeer(
 		pool: utils.NewPool(
 			utils.PoolConfig{
 				MaxNum:         maxIdle,
-				MinIdle:        0,
+				MinIdle:        minIdle,
 				MaxIdle:        maxIdle,
 				MaxIdleTimeout: maxIdleTimeout,
 				Wait:           false,
@@ -290,6 +291,7 @@ func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 			return newPeer(
 				serviceName,
 				addr,
+				idlConfig.MinIdlePerAddress,
 				idlConfig.MaxIdlePerAddress,
 				idlConfig.MaxIdleTimeout,
 				limit)
