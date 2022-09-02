@@ -19,7 +19,6 @@ package utils
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -119,7 +118,7 @@ func (p *Pool) Get(newer func() (PoolObject, error)) (PoolObject, bool, error) {
 		return nil, false, err
 	}
 	// record
-	atomic.AddInt32(&p.total, 1)
+	//atomic.AddInt32(&p.total, 1)
 	return o, false, nil
 }
 
