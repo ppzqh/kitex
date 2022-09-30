@@ -158,7 +158,7 @@ func TestPoolDump(t *testing.T) {
 
 	dump := p.Dump()
 	test.Assert(t, dump.IdleNum == 2)
-	test.Assert(t, len(dump.IdleList) == 2)
+	test.Assert(t, len(dump.ConnsDeadline) == 2)
 }
 
 // fakeNewLongPool creates a LongPool object and modifies it to fit tests.
@@ -264,7 +264,7 @@ func TestLongConnPoolReuse(t *testing.T) {
 		err = p.Put(c)
 		test.Assert(t, err == nil)
 		count[c]++
-		time.Sleep(idleTime * 2)
+		time.Sleep(idleTime * 3)
 	}
 	test.Assert(t, len(count) == 3)
 }
@@ -511,7 +511,7 @@ func TestLongConnPoolCloseOnIdleTimeout(t *testing.T) {
 	test.Assert(t, err == nil)
 	test.Assert(t, !closed)
 
-	time.Sleep(idleTime * 2)
+	time.Sleep(idleTime * 3)
 
 	c2, err := p.Get(context.TODO(), "tcp", addr, opt)
 	test.Assert(t, err == nil)
@@ -793,7 +793,7 @@ func TestLongConnPoolDump(t *testing.T) {
 	val := data[mockAddr0]
 	test.Assert(t, val != nil)
 
-	length := len(val.(PoolDump).IdleList)
+	length := len(val.(PoolDump).ConnsDeadline)
 	test.Assert(t, length == 1)
 }
 
