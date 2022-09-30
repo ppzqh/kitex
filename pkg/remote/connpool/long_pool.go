@@ -232,7 +232,11 @@ func (p *peer) Get(d remote.Dialer, timeout time.Duration, reporter Reporter, ad
 		return c, nil
 	}
 	// dial a new connection
-	c, err := d.DialTimeout(p.addr.Network(), p.addr.String(), timeout)
+
+	// use this timeout to mock the latency of connection establishment
+	time.Sleep(timeout)
+	defaultTimeout := time.Millisecond * 50
+	c, err := d.DialTimeout(p.addr.Network(), p.addr.String(), defaultTimeout)
 	if err != nil {
 		reporter.ConnFailed(Long, p.serviceName, p.addr)
 		return nil, err
