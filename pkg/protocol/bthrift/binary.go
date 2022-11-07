@@ -254,9 +254,9 @@ func (binaryProtocol) StringLengthNocopy(value string) int {
 
 func (binaryProtocol) BinaryLengthNocopy(value []byte) int {
 	l := Binary.I32Length(int32(len(value)))
-	if len(value) > binaryInplaceThreshold {
-		return l
-	}
+	//if len(value) > binaryInplaceThreshold {
+	//	return l
+	//}
 	return l + len(value)
 }
 
