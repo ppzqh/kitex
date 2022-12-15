@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"sync/atomic"
 
@@ -95,6 +96,7 @@ func NewClient(svcInfo *serviceinfo.ServiceInfo, opts ...Option) (Client, error)
 	kc.svcInfo = svcInfo
 	kc.opt = client.NewOptions(opts)
 	if err := kc.init(); err != nil {
+		klog.Errorf("KITEX: init client failed, error=%s", err.Error())
 		_ = kc.Close()
 		return nil, err
 	}
@@ -503,6 +505,11 @@ func (kc *kClient) invokeHandleEndpoint() (endpoint.Endpoint, error) {
 
 // Close is not concurrency safe.
 func (kc *kClient) Close() error {
+	defer func() {
+		if err := recover(); err != nil {
+			klog.Warnf("KITEX: panic when close client, error=%s, stack=%s\"", err, string(debug.Stack()))
+		}
+	}()
 	if kc.closed {
 		return nil
 	}
