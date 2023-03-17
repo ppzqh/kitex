@@ -130,3 +130,25 @@ func TestSetTag(t *testing.T) {
 	val, _ = ri.Tag(unlockKey)
 	test.Assert(t, val == "bb")
 }
+
+func TestSelfTag(t *testing.T) {
+	bi := &rpcinfo.EndpointBasicInfo{
+		ServiceName: "service",
+	}
+	ri := remoteinfo.NewRemoteInfo(bi, "method1")
+	mockKey, mockValue := "k", "v"
+	ins := discovery.NewInstance("", "", 1, map[string]string{mockKey: mockValue})
+	ri.SetInstance(ins)
+	// before set
+	_, ok := ri.SelfTag(mockKey)
+	test.Assert(t, ok == false)
+	v, ok := ri.Tag(mockKey)
+	test.Assert(t, ok == true)
+	test.Assert(t, v == mockValue)
+
+	// after set
+	ri.SetTag(mockKey, mockValue)
+	v, ok = ri.SelfTag(mockKey)
+	test.Assert(t, ok == true)
+	test.Assert(t, v == mockValue)
+}

@@ -34,6 +34,7 @@ type RemoteInfo interface {
 	SetServiceName(name string)
 	SetTag(key, value string) error
 	ForceSetTag(key, value string)
+	SelfTag(key string) (value string, exist bool)
 
 	// SetTagLock freezes a key of the tags and refuses further modification on its value.
 	SetTagLock(key string)
@@ -118,6 +119,14 @@ func (ri *remoteInfo) Tag(key string) (value string, exist bool) {
 		value, exist = ri.instance.Tag(key)
 	}
 	return
+}
+
+// SelfTag only returns the value in tags of itself but not instance tags.
+func (ri *remoteInfo) SelfTag(key string) (value string, exist bool) {
+	ri.RLock()
+	value, exist = ri.tags[key]
+	ri.RUnlock()
+	return value, exist
 }
 
 // DefaultTag implements the rpcinfo.EndpointInfo interface.
