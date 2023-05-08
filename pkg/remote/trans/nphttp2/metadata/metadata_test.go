@@ -87,7 +87,16 @@ func TestContext(t *testing.T) {
 
 	key2, key3, value2, value3 := "k2", "k3", "v2", "v3"
 	// test outgoingCtxRaw
-	AppendToOutgoingContext(outgoingCtx, key2, value2, key3, value3)
-	_, _, outgoingRawOk := FromOutgoingContextRaw(outgoingCtx)
+	outgoingCtx = AppendToOutgoingContext(outgoingCtx, key2, value2, key3, value3)
+	md, _, outgoingRawOk := FromOutgoingContextRaw(outgoingCtx)
+	// added meta is not in raw
 	test.Assert(t, outgoingRawOk)
+	v2 := md.Get(key2)
+	test.Assert(t, len(v2) == 0)
+	// added meta will be merged with raw and return
+	md, ok := FromOutgoingContext(outgoingCtx)
+	test.Assert(t, ok == true)
+	v2 = md.Get(key2)
+	test.Assert(t, len(v2) == 1)
+	test.Assert(t, v2[0] == value2)
 }
