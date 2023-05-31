@@ -21,10 +21,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"runtime/debug"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cloudwego/netpoll"
@@ -121,7 +123,7 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
 	svrTrans := ctx.Value(ctxKeySvrTransport).(*SvrTrans)
 	tr := svrTrans.tr
 
-	tr.HandleStreams(func(s *grpcTransport.Stream) {
+	return tr.HandleStreams(func(s *grpcTransport.Stream) {
 		gofunc.GoFunc(ctx, func() {
 			ri := svrTrans.pool.Get().(rpcinfo.RPCInfo)
 			rCtx := rpcinfo.NewCtxWithRPCInfo(s.Context(), ri)
@@ -279,6 +281,15 @@ func (t *svrTransHandler) OnInactive(ctx context.Context, conn net.Conn) {
 
 // 传输层 error 回调
 func (t *svrTransHandler) OnError(ctx context.Context, err error, conn net.Conn) {
+	if t.isRemoteClosedErr(err) {
+		ri := rpcinfo.GetRPCInfo(ctx)
+		if ri == nil {
+			return
+		}
+		ei := rpcinfo.AsMutableEndpointInfo(ri.From())
+		ei.SetTag(rpcinfo.RemoteClosedTag, "1")
+		return
+	}
 	var de *kerrors.DetailedError
 	if ok := errors.As(err, &de); ok && de.Stack() != "" {
 		klog.Errorf("KITEX: processing gRPC request error, remoteAddr=%s, error=%s\nstack=%s", conn.RemoteAddr(), err.Error(), de.Stack())
@@ -309,4 +320,16 @@ func (t *svrTransHandler) finishTracer(ctx context.Context, ri rpcinfo.RPCInfo, 
 	}
 	t.opt.TracerCtl.DoFinish(ctx, ri, err)
 	rpcStats.Reset()
+}
+
+func (t *svrTransHandler) isRemoteClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// strings.Contains(err.Error(), "closed network connection") change to errors.Is(err, net.ErrClosed)
+	// when support go version >= 1.16
+	return errors.Is(err, netpoll.ErrConnClosed) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, syscall.EPIPE) ||
+		strings.Contains(err.Error(), "closed network connection")
 }
