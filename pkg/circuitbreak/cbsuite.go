@@ -281,9 +281,11 @@ func cbDebugInfo(panel circuitbreaker.Panel) map[string]interface{} {
 		return nil
 	}
 	cbMap := make(map[string]interface{})
-	for key, breaker := range dumper.DumpBreakers() {
+	breakers := dumper.DumpBreakers()
+	for key, breaker := range breakers {
 		cbState := breaker.State()
 		if cbState == circuitbreaker.Closed {
+			cbMap[key] = "closed"
 			continue
 		}
 		cbMap[key] = map[string]interface{}{
@@ -296,6 +298,9 @@ func cbDebugInfo(panel circuitbreaker.Panel) map[string]interface{} {
 	}
 	if len(cbMap) == 0 {
 		cbMap["msg"] = "all circuit breakers are in closed state"
+	}
+	if breakers != nil {
+		cbMap["total_num"] = len(breakers)
 	}
 	return cbMap
 }
