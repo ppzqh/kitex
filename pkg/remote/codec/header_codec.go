@@ -114,6 +114,28 @@ const (
 	InfoIDACLToken    InfoIDType = 0x11
 )
 
+type TTHeaderCodec struct {
+	ttHeader
+}
+
+func (t TTHeaderCodec) Encode(ctx context.Context, message remote.Message, out remote.ByteBuffer) (totalLenField []byte, err error) {
+	totalLenField, err = t.encode(ctx, message, out)
+	if err != nil {
+		return nil, err
+	}
+	payloadLen := out.MallocLen() - Size32
+	binary.BigEndian.PutUint32(totalLenField, uint32(payloadLen))
+	return nil, nil
+}
+
+func (t TTHeaderCodec) Decode(ctx context.Context, message remote.Message, in remote.ByteBuffer) error {
+	return t.decode(ctx, message, in)
+}
+
+func (t TTHeaderCodec) Name() string {
+	return "ttheader"
+}
+
 type ttHeader struct{}
 
 func (t ttHeader) encode(ctx context.Context, message remote.Message, out remote.ByteBuffer) (totalLenField []byte, err error) {
