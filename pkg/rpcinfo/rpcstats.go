@@ -96,8 +96,9 @@ type rpcStats struct {
 
 	eventMap []Event
 
-	sendSize uint64
-	recvSize uint64
+	sendSize   uint64
+	recvSize   uint64
+	headerSize uint64
 
 	err      atomic.Value
 	panicErr atomic.Value
@@ -178,6 +179,14 @@ func (r *rpcStats) SetSendSize(size uint64) {
 // SetRecvSize sets recv size.
 func (r *rpcStats) SetRecvSize(size uint64) {
 	atomic.StoreUint64(&r.recvSize, size)
+}
+
+func (r *rpcStats) HeaderSize() uint64 {
+	return r.headerSize
+}
+
+func (r *rpcStats) SetHeaderSize(size uint64) {
+	r.headerSize = size
 }
 
 // SetError sets error.

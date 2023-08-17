@@ -40,6 +40,7 @@ type RPCStats interface {
 	Record(ctx context.Context, event stats.Event, status stats.Status, info string)
 	SendSize() uint64
 	RecvSize() uint64
+	HeaderSize() uint64
 	Error() error
 	Panicked() (bool, interface{})
 	GetEvent(event stats.Event) Event

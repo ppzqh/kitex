@@ -56,6 +56,7 @@ type MutableRPCConfig interface {
 type MutableRPCStats interface {
 	SetSendSize(size uint64)
 	SetRecvSize(size uint64)
+	SetHeaderSize(size uint64)
 	SetError(err error)
 	SetPanicked(x interface{})
 	SetLevel(level stats.Level)
