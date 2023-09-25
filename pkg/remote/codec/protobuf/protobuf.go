@@ -26,6 +26,8 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/codec"
 	"github.com/cloudwego/kitex/pkg/remote/codec/perrors"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/stats"
 )
 
 /**
@@ -135,8 +137,12 @@ func (c protobufCodec) Unmarshal(ctx context.Context, message remote.Message, in
 	if err = codec.SetOrCheckSeqID(int32(seqID), message); err != nil && msgType != uint32(remote.Exception) {
 		return err
 	}
+
 	actualMsgLen := payloadLen - metaInfoFixLen - methodFieldLen
+	ri := message.RPCInfo()
+	rpcinfo.Record(ctx, ri, stats.WaitReadStart, nil)
 	actualMsgBuf, err := in.Next(actualMsgLen)
+	rpcinfo.Record(ctx, ri, stats.WaitReadFinish, err)
 	if err != nil {
 		return perrors.NewProtocolErrorWithErrMsg(err, fmt.Sprintf("protobuf unmarshal, read message buffer failed: %s", err.Error()))
 	}
