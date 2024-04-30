@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kpango/fastime"
 	"time"
 
 	"github.com/cloudwego/kitex/internal/wpool"
@@ -114,7 +115,7 @@ func rpcTimeoutMW(mwCtx context.Context) endpoint.Middleware {
 			}
 
 			var err error
-			start := time.Now()
+			start := fastime.Now() //time.Now()
 			done := make(chan error, 1)
 			workerPool.GoCtx(ctx, func() {
 				defer func() {

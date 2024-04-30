@@ -18,6 +18,7 @@ package rpcinfo
 
 import (
 	"context"
+	"github.com/kpango/fastime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -138,7 +139,7 @@ func NewEvent(statsEvent stats.Event, status stats.Status, info string) Event {
 	eve.event = statsEvent
 	eve.status = status
 	eve.info = info
-	eve.time = time.Now()
+	eve.time = fastime.Now()
 	return eve
 }
 
