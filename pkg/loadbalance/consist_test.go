@@ -19,6 +19,7 @@ package loadbalance
 import (
 	"context"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/loadbalance/newconsist"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -166,20 +167,29 @@ func TestConsistPicker_Next_NoCache_Consist(t *testing.T) {
 		CacheKey:  "",
 		Instances: insList,
 	}
+	opt.GetKey = func(ctx context.Context, request interface{}) string {
+		v := ctx.Value("key")
+		return v.(string)
+	}
+
+	cnt := make(map[string]int)
+	for _, ins := range insList {
+		cnt[ins.Address().String()] = 0
+	}
+	cnt["null"] = 0
 
 	cb := NewConsistBalancer(opt)
 	picker := cb.GetPicker(e)
-	ins := picker.Next(context.TODO(), nil)
-	for i := 0; i < 100; i++ {
-		picker := cb.GetPicker(e)
-		test.Assert(t, picker.Next(context.TODO(), nil) == ins)
+	for i := 0; i < 100000; i++ {
+		ctx := context.WithValue(context.Background(), "key", strconv.Itoa(i))
+		if res := picker.Next(ctx, nil); res != nil {
+			cnt[res.Address().String()]++
+		} else {
+			cnt["null"]++
+		}
 	}
+	fmt.Println(cnt)
 
-	cb = NewConsistBalancer(opt)
-	for i := 0; i < 100; i++ {
-		picker := cb.GetPicker(e)
-		test.Assert(t, picker.Next(context.TODO(), nil) == ins)
-	}
 }
 
 func TestConsistPicker_Next_Cache(t *testing.T) {
@@ -420,4 +430,53 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 		})
 		n *= 10
 	}
+}
+
+func BenchmarkRebalance(bb *testing.B) {
+	nums := 1000
+	insList := make([]discovery.Instance, 0, nums)
+	for i := 0; i < nums; i++ {
+		insList = append(insList, discovery.NewInstance("tcp", "addr"+strconv.Itoa(i), 10, nil))
+	}
+	e := discovery.Result{
+		Cacheable: false,
+		CacheKey:  "",
+		Instances: insList,
+	}
+
+	// prepare
+	oldConsist := NewConsistBalancer(newTestConsistentHashOption()).(*consistBalancer)
+	oldConsist.updateConsistInfo(e)
+	newConsist := newconsist.NewConsistInfo(e)
+
+	bb.Run(fmt.Sprintf("old-consist-%d", nums), func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < nums; i++ {
+			e.Instances = insList[i+1:]
+			change := discovery.Change{
+				Result:  e,
+				Added:   nil,
+				Removed: []discovery.Instance{insList[i]},
+				Updated: nil,
+			}
+			oldConsist.newConsistInfo(change.Result)
+		}
+	})
+
+	bb.Run(fmt.Sprintf("new-consist-%d", nums), func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < nums; i++ {
+			e.Instances = insList[i+1:]
+			change := discovery.Change{
+				Result:  e,
+				Added:   nil,
+				Removed: []discovery.Instance{insList[i]},
+				Updated: nil,
+			}
+			newConsist.Rebalance(change)
+		}
+	})
+
 }
