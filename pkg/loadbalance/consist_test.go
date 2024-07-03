@@ -402,7 +402,7 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 	n := 10
 	balancer := NewConsistBalancer(NewConsistentHashOption(getRandomKey))
 
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 1; i++ {
 		bb.Run(fmt.Sprintf("%dins", n), func(b *testing.B) {
 			inss := makeNInstances(n, 10)
 			e := discovery.Result{
@@ -417,10 +417,10 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				b.Logf("round %d", i)
-				b.StopTimer()
+				//b.Logf("round %d", i)
+				//b.StopTimer()
 				ctx = context.WithValue(context.Background(), keyCtxKey, getRandomString(30))
-				b.StartTimer()
+				//b.StartTimer()
 				picker := balancer.GetPicker(e)
 				picker.Next(ctx, nil)
 				if r, ok := picker.(internal.Reusable); ok {
@@ -447,22 +447,25 @@ func BenchmarkRebalance(bb *testing.B) {
 	// prepare
 	oldConsist := NewConsistBalancer(newTestConsistentHashOption()).(*consistBalancer)
 	oldConsist.updateConsistInfo(e)
-	newConsist := newconsist.NewConsistInfo(e)
-
-	bb.Run(fmt.Sprintf("old-consist-%d", nums), func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-		for i := 0; i < nums; i++ {
-			e.Instances = insList[i+1:]
-			change := discovery.Change{
-				Result:  e,
-				Added:   nil,
-				Removed: []discovery.Instance{insList[i]},
-				Updated: nil,
-			}
-			oldConsist.newConsistInfo(change.Result)
-		}
+	newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
+		VirtualFactor: 100,
+		Weighted:      true,
 	})
+
+	//bb.Run(fmt.Sprintf("old-consist-%d", nums), func(b *testing.B) {
+	//	b.ReportAllocs()
+	//	b.ResetTimer()
+	//	for i := 0; i < nums; i++ {
+	//		e.Instances = insList[i+1:]
+	//		change := discovery.Change{
+	//			Result:  e,
+	//			Added:   nil,
+	//			Removed: []discovery.Instance{insList[i]},
+	//			Updated: nil,
+	//		}
+	//		oldConsist.newConsistInfo(change.Result)
+	//	}
+	//})
 
 	bb.Run(fmt.Sprintf("new-consist-%d", nums), func(b *testing.B) {
 		b.ReportAllocs()

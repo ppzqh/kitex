@@ -22,25 +22,13 @@ func TestNewSkipList(t *testing.T) {
 	for i := 0; i < s.totalLevel; i++ {
 		currCnt := countLevel(s, i)
 		totalCnt += currCnt
-		fmt.Printf("level[%d], count[%d]\n", i, currCnt)
 	}
 	fmt.Printf("totalCnt: %d, ratio: %f\n", totalCnt, float64(totalCnt)/float64(dataCnt))
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < dataCnt; i++ {
 		s.Delete(uint64(i))
+		currCnt := countLevel(s, 0)
+		test.Assert(t, currCnt == dataCnt-i-1)
 	}
-	dataCnt -= 1000
-	currCnt := countLevel(s, 0)
-	fmt.Printf("totalCnt, expected=%d, actual=%d\n", dataCnt, currCnt)
-}
-
-func countLevel(s *skipList, level int) int {
-	n := s.dummy
-	cnt := 0
-	for n.next[level] != nil {
-		n = n.next[level]
-		cnt++
-	}
-	return cnt
 }
 
 func TestFuzzSkipList(t *testing.T) {
@@ -52,7 +40,7 @@ func TestFuzzSkipList(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		value := rand.Uint64() % 10000
 		vs[i] = value
-		node := newNode(nil, value, randomLevel())
+		node := &virtualNode{nil, value, nil}
 		sl.Insert(node)
 	}
 
@@ -86,7 +74,7 @@ func Test_getConsistentResult(t *testing.T) {
 		CacheKey:  "",
 		Instances: insList,
 	}
-	info := NewConsistInfo(e)
+	info := NewConsistInfo(e, ConsistInfoConfig{VirtualFactor: 100, Weighted: true})
 	newInsList := make([]discovery.Instance, len(insList)-1)
 	copy(newInsList, insList[1:])
 	newResult := discovery.Result{
@@ -108,11 +96,57 @@ func Test_getConsistentResult(t *testing.T) {
 	}
 	cnt["null"] = 0
 	for i := 0; i < 100000; i++ {
-		if res := info.getConsistentResult(xxhash3.HashString(strconv.Itoa(i))); res != nil {
+		if res := info.BuildConsistentResult(xxhash3.HashString(strconv.Itoa(i))); res != nil {
 			cnt[res.Address().String()]++
 		} else {
 			cnt["null"]++
 		}
 	}
 	fmt.Println(cnt)
+}
+
+func TestRebalance(t *testing.T) {
+	nums := 1000
+	insList := make([]discovery.Instance, 0, nums)
+	for i := 0; i < nums; i++ {
+		insList = append(insList, discovery.NewInstance("tcp", "addr"+strconv.Itoa(i), 10, nil))
+	}
+	e := discovery.Result{
+		Cacheable: false,
+		CacheKey:  "",
+		Instances: insList,
+	}
+	newConsist := NewConsistInfo(e, ConsistInfoConfig{
+		VirtualFactor: 100,
+		Weighted:      true,
+	})
+	for i := 0; i < nums; i++ {
+		_, all := searchRealNode(newConsist, &realNode{insList[i]})
+		// should find all virtual node
+		test.Assert(t, all)
+	}
+	for i := 0; i < nums; i++ {
+		e.Instances = insList[i+1:]
+		change := discovery.Change{
+			Result:  e,
+			Added:   nil,
+			Removed: []discovery.Instance{insList[i]},
+			Updated: nil,
+		}
+		newConsist.Rebalance(change)
+
+		one, _ := searchRealNode(newConsist, &realNode{insList[i]})
+		// no virtual node should be found
+		test.Assert(t, !one)
+	}
+}
+
+func countLevel(s *skipList, level int) int {
+	n := s.dummy
+	cnt := 0
+	for n.next[level] != nil {
+		n = n.next[level]
+		cnt++
+	}
+	return cnt
 }
