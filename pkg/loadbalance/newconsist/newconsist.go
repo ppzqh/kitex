@@ -12,7 +12,7 @@ type realNode struct {
 }
 
 type virtualNode struct {
-	realNode *realNode
+	realNode discovery.Instance
 	value    uint64
 	next     []*virtualNode
 }
@@ -28,6 +28,8 @@ type ConsistInfo struct {
 	cfg          ConsistInfoConfig
 	lastRes      discovery.Result
 	virtualNodes *skipList
+
+	cachedByte []byte
 }
 
 func NewConsistInfo(result discovery.Result, cfg ConsistInfoConfig) *ConsistInfo {
@@ -35,9 +37,10 @@ func NewConsistInfo(result discovery.Result, cfg ConsistInfoConfig) *ConsistInfo
 		cfg:          cfg,
 		virtualNodes: newSkipList(),
 		lastRes:      result,
+		cachedByte:   make([]byte, 0, utils.GetUIntLen(uint64(10*int(cfg.VirtualFactor)))+maxAddrLength+1),
 	}
 	for _, ins := range result.Instances {
-		info.addAllVirtual(&realNode{ins})
+		info.addAllVirtual(ins)
 	}
 	return info
 }
@@ -51,7 +54,7 @@ func (info *ConsistInfo) BuildConsistentResult(value uint64) discovery.Instance 
 	defer info.mu.RUnlock()
 
 	if n := info.virtualNodes.FindGreater(value); n != nil {
-		return n.realNode.Instance
+		return n.realNode
 	}
 	return nil
 }
@@ -65,32 +68,31 @@ func (info *ConsistInfo) Rebalance(change discovery.Change) {
 	if len(change.Updated) > 0 {
 		info.virtualNodes = newSkipList()
 		for _, ins := range change.Result.Instances {
-			info.addAllVirtual(&realNode{ins})
+			info.addAllVirtual(ins)
 		}
 		return
 	}
 	for _, ins := range change.Added {
-		info.addAllVirtual(&realNode{ins})
+		info.addAllVirtual(ins)
 	}
 	for _, ins := range change.Removed {
-		info.removeAllVirtual(&realNode{ins})
+		l := ins.Weight() * int(info.cfg.VirtualFactor)
+		addrByte := utils.StringToSliceByte(ins.Address().String())
+		info.removeAllVirtual(l, info.cachedByte, addrByte)
 	}
+
 }
 
-func (info *ConsistInfo) removeAllVirtual(node *realNode) {
-	l := info.getVirtualNodeLen(node)
-	b := make([]byte, 0, utils.GetUIntLen(uint64(l))+maxAddrLength+1)
-	addrByte := utils.StringToSliceByte(node.Address().String())
-
-	for i := 0; i < l; i++ {
+func (info *ConsistInfo) removeAllVirtual(virtualLen int, b []byte, addrByte []byte) {
+	for i := 0; i < virtualLen; i++ {
 		vv := getVirtualNodeHash(b, addrByte, i)
 		info.virtualNodes.Delete(vv)
 	}
 }
 
-func (info *ConsistInfo) addAllVirtual(node *realNode) {
+func (info *ConsistInfo) addAllVirtual(node discovery.Instance) {
 	l := info.getVirtualNodeLen(node)
-	b := make([]byte, 0, utils.GetUIntLen(uint64(l))+maxAddrLength+1)
+	b := info.cachedByte //make([]byte, 0, utils.GetUIntLen(uint64(l))+maxAddrLength+1)
 	addrByte := utils.StringToSliceByte(node.Address().String())
 
 	for i := 0; i < l; i++ {
@@ -99,7 +101,7 @@ func (info *ConsistInfo) addAllVirtual(node *realNode) {
 	}
 }
 
-func (info *ConsistInfo) getVirtualNodeLen(node *realNode) int {
+func (info *ConsistInfo) getVirtualNodeLen(node discovery.Instance) int {
 	if info.cfg.Weighted {
 		return node.Weight() * int(info.cfg.VirtualFactor)
 	}

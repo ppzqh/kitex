@@ -399,7 +399,7 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 	n := 10
 	balancer := NewConsistBalancer(NewConsistentHashOption(getRandomKey))
 
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 5; i++ {
 		bb.Run(fmt.Sprintf("%dins", n), func(b *testing.B) {
 			r := rand.New(rand.NewSource(int64(n)))
 			inss := makeNInstances(n, 10)
@@ -428,53 +428,49 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 }
 
 func BenchmarkRebalance(bb *testing.B) {
-	nums := 1000
-	insList := make([]discovery.Instance, 0, nums)
-	for i := 0; i < nums; i++ {
-		insList = append(insList, discovery.NewInstance("tcp", "addr"+strconv.Itoa(i), 10, nil))
-	}
+	weight := 10
+	nums := 10000
+
+	// prepare
+	insList := makeNInstances(nums, weight)
 	e := discovery.Result{
 		Cacheable: false,
 		CacheKey:  "",
 		Instances: insList,
 	}
-
-	// prepare
-	oldConsist := NewConsistBalancer(newTestConsistentHashOption()).(*consistBalancer)
-	oldConsist.updateConsistInfo(e)
 	newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
 		VirtualFactor: 100,
 		Weighted:      true,
 	})
-
-	//bb.Run(fmt.Sprintf("old-consist-%d", nums), func(b *testing.B) {
-	//	b.ReportAllocs()
-	//	b.ResetTimer()
-	//	for i := 0; i < nums; i++ {
-	//		e.Instances = insList[i+1:]
-	//		change := discovery.Change{
-	//			Result:  e,
-	//			Added:   nil,
-	//			Removed: []discovery.Instance{insList[i]},
-	//			Updated: nil,
-	//		}
-	//		oldConsist.newConsistInfo(change.Result)
-	//	}
-	//})
-
-	bb.Run(fmt.Sprintf("new-consist-%d", nums), func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-		for i := 0; i < nums; i++ {
-			e.Instances = insList[i+1:]
+	for n := 0; n < 1; n++ {
+		bb.Run(fmt.Sprintf("consist-%d", nums), func(b *testing.B) {
+			//insList := makeNInstances(nums, weight)
+			//e := discovery.Result{
+			//	Cacheable: false,
+			//	CacheKey:  "",
+			//	Instances: insList,
+			//}
+			//newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
+			//	VirtualFactor: 100,
+			//	Weighted:      true,
+			//})
+			b.ReportAllocs()
+			b.ResetTimer()
 			change := discovery.Change{
 				Result:  e,
 				Added:   nil,
-				Removed: []discovery.Instance{insList[i]},
 				Updated: nil,
 			}
-			newConsist.Rebalance(change)
-		}
-	})
+			removed := []discovery.Instance{insList[0]}
+			for i := 0; i < nums; i++ {
+				e.Instances = insList[i+1:]
+				removed[0] = insList[i]
+				change.Result = e
+				change.Removed = removed
+				newConsist.Rebalance(change)
+			}
+		})
+		nums *= 10
+	}
 
 }
