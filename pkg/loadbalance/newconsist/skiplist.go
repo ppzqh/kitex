@@ -63,11 +63,15 @@ func (sl *skipList) Insert(n *virtualNode) {
 
 	// insert the node into the [0:level] levels of the list
 	newNode := n
-	n.next = make([]*virtualNode, level)
+	n.next = makeNewVirtualNode(level) //make([]*virtualNode, level)
 	for i := 0; i < level; i++ {
 		newNode.next[i] = update[i].next[i]
 		update[i].next[i] = newNode
 	}
+}
+
+func makeNewVirtualNode(level int) []*virtualNode {
+	return make([]*virtualNode, level)
 }
 
 // Delete removes the nodes with the input value

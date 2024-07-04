@@ -95,9 +95,12 @@ func (info *ConsistInfo) addAllVirtual(node discovery.Instance) {
 	b := info.cachedByte //make([]byte, 0, utils.GetUIntLen(uint64(l))+maxAddrLength+1)
 	addrByte := utils.StringToSliceByte(node.Address().String())
 
+	vns := make([]virtualNode, l)
 	for i := 0; i < l; i++ {
 		vv := getVirtualNodeHash(b, addrByte, i)
-		info.virtualNodes.Insert(&virtualNode{realNode: node, value: vv})
+		vns[i].realNode = node
+		vns[i].value = vv
+		info.virtualNodes.Insert(&vns[i])
 	}
 }
 

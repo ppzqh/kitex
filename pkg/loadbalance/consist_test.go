@@ -22,6 +22,7 @@ import (
 	"github.com/bytedance/gopkg/lang/fastrand"
 	"github.com/cloudwego/kitex/pkg/loadbalance/newconsist"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -429,31 +430,21 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 
 func BenchmarkRebalance(bb *testing.B) {
 	weight := 10
-	nums := 10000
+	nums := 10
 
-	// prepare
-	insList := makeNInstances(nums, weight)
-	e := discovery.Result{
-		Cacheable: false,
-		CacheKey:  "",
-		Instances: insList,
-	}
-	newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
-		VirtualFactor: 100,
-		Weighted:      true,
-	})
-	for n := 0; n < 1; n++ {
+	for n := 0; n < 4; n++ {
 		bb.Run(fmt.Sprintf("consist-%d", nums), func(b *testing.B) {
-			//insList := makeNInstances(nums, weight)
-			//e := discovery.Result{
-			//	Cacheable: false,
-			//	CacheKey:  "",
-			//	Instances: insList,
-			//}
-			//newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
-			//	VirtualFactor: 100,
-			//	Weighted:      true,
-			//})
+			insList := makeNInstances(nums, weight)
+			e := discovery.Result{
+				Cacheable: false,
+				CacheKey:  "",
+				Instances: insList,
+			}
+			newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
+				VirtualFactor: 100,
+				Weighted:      true,
+			})
+
 			b.ReportAllocs()
 			b.ResetTimer()
 			change := discovery.Change{
@@ -469,8 +460,32 @@ func BenchmarkRebalance(bb *testing.B) {
 				change.Removed = removed
 				newConsist.Rebalance(change)
 			}
+			runtime.GC()
 		})
 		nums *= 10
 	}
 
+}
+
+func BenchmarkNewConsistInfo(b *testing.B) {
+	weight := 10
+	nums := 10
+	for n := 0; n < 4; n++ {
+		b.Run(fmt.Sprintf("new-consist-%d", nums), func(b *testing.B) {
+			insList := makeNInstances(nums, weight)
+			e := discovery.Result{
+				Cacheable: false,
+				CacheKey:  "",
+				Instances: insList,
+			}
+			b.ResetTimer()
+			b.ReportAllocs()
+			newConsist := newconsist.NewConsistInfo(e, newconsist.ConsistInfoConfig{
+				VirtualFactor: 100,
+				Weighted:      true,
+			})
+			_ = newConsist
+		})
+		nums *= 10
+	}
 }
