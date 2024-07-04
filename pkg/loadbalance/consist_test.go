@@ -19,14 +19,12 @@ package loadbalance
 import (
 	"context"
 	"fmt"
+	"github.com/bytedance/gopkg/lang/fastrand"
 	"github.com/cloudwego/kitex/pkg/loadbalance/newconsist"
 	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/bytedance/gopkg/lang/fastrand"
 
 	"github.com/cloudwego/kitex/internal"
 	"github.com/cloudwego/kitex/internal/test"
@@ -54,13 +52,12 @@ func getRandomKey(ctx context.Context, request interface{}) string {
 	return key
 }
 
-func getRandomString(length int) string {
+func getRandomString(r *rand.Rand, length int) string {
 	var resBuilder strings.Builder
 	resBuilder.Grow(length)
 	corpus := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	rand.Seed(time.Now().UnixNano() + int64(100))
 	for i := 0; i < length; i++ {
-		resBuilder.WriteByte(corpus[rand.Intn(len(corpus))])
+		resBuilder.WriteByte(corpus[r.Intn(len(corpus))])
 	}
 	return resBuilder.String()
 }
@@ -402,8 +399,9 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 	n := 10
 	balancer := NewConsistBalancer(NewConsistentHashOption(getRandomKey))
 
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 4; i++ {
 		bb.Run(fmt.Sprintf("%dins", n), func(b *testing.B) {
+			r := rand.New(rand.NewSource(int64(n)))
 			inss := makeNInstances(n, 10)
 			e := discovery.Result{
 				Cacheable: true,
@@ -411,16 +409,13 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 				Instances: inss,
 			}
 			picker := balancer.GetPicker(e)
-			ctx := context.WithValue(context.Background(), keyCtxKey, getRandomString(30))
+			ctx := context.WithValue(context.Background(), keyCtxKey, getRandomString(r, 30))
 			picker.Next(ctx, nil)
 			picker.(internal.Reusable).Recycle()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				//b.Logf("round %d", i)
-				//b.StopTimer()
-				ctx = context.WithValue(context.Background(), keyCtxKey, getRandomString(30))
-				//b.StartTimer()
+				ctx = context.WithValue(context.Background(), keyCtxKey, getRandomString(r, 30))
 				picker := balancer.GetPicker(e)
 				picker.Next(ctx, nil)
 				if r, ok := picker.(internal.Reusable); ok {
