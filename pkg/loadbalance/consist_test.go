@@ -396,12 +396,12 @@ func BenchmarkNewConsistPicker(bb *testing.B) {
 // BenchmarkConsistPicker_RandomDistributionKey/1000ins-12       	 2848216.          407.7 ns/op	      48 B/op	       1 allocs/op
 // BenchmarkConsistPicker_RandomDistributionKey/10000ins
 // BenchmarkConsistPicker_RandomDistributionKey/10000ins-12      	 2701766	       492.7 ns/op	      48 B/op	       1 allocs/op
-func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
-	n := 10
+func BenchmarkConsistPicker_RandomDistributionKey(b *testing.B) {
+	n := 10000
 	balancer := NewConsistBalancer(NewConsistentHashOption(getRandomKey))
 
-	for i := 0; i < 5; i++ {
-		bb.Run(fmt.Sprintf("%dins", n), func(b *testing.B) {
+	for i := 0; i < 1; i++ {
+		b.Run(fmt.Sprintf("%dins", n), func(b *testing.B) {
 			r := rand.New(rand.NewSource(int64(n)))
 			inss := makeNInstances(n, 10)
 			e := discovery.Result{
@@ -409,20 +409,20 @@ func BenchmarkConsistPicker_RandomDistributionKey(bb *testing.B) {
 				CacheKey:  "test",
 				Instances: inss,
 			}
+			b.ReportAllocs()
+			b.ResetTimer()
 			picker := balancer.GetPicker(e)
 			ctx := context.WithValue(context.Background(), keyCtxKey, getRandomString(r, 30))
 			picker.Next(ctx, nil)
-			picker.(internal.Reusable).Recycle()
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				ctx = context.WithValue(context.Background(), keyCtxKey, getRandomString(r, 30))
-				picker := balancer.GetPicker(e)
-				picker.Next(ctx, nil)
-				if r, ok := picker.(internal.Reusable); ok {
-					r.Recycle()
-				}
-			}
+			//picker.(internal.Reusable).Recycle()
+			//for i := 0; i < b.N; i++ {
+			//	ctx = context.WithValue(context.Background(), keyCtxKey, getRandomString(r, 30))
+			//	picker := balancer.GetPicker(e)
+			//	picker.Next(ctx, nil)
+			//	if r, ok := picker.(internal.Reusable); ok {
+			//		r.Recycle()
+			//	}
+			//}
 		})
 		n *= 10
 	}
@@ -488,4 +488,17 @@ func BenchmarkNewConsistInfo(b *testing.B) {
 		})
 		nums *= 10
 	}
+}
+
+func printMemStats() {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	fmt.Printf("Alloc = %v MiB\n", bToMb(memStats.Alloc))
+	fmt.Printf("TotalAlloc = %v MiB\n", bToMb(memStats.TotalAlloc))
+	fmt.Printf("Sys = %v MiB\n", bToMb(memStats.Sys))
+	fmt.Printf("NumGC = %v\n", memStats.NumGC)
+}
+
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
 }

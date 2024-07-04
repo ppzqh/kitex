@@ -39,9 +39,10 @@ func NewConsistInfo(result discovery.Result, cfg ConsistInfoConfig) *ConsistInfo
 		lastRes:      result,
 		cachedByte:   make([]byte, 0, utils.GetUIntLen(uint64(10*int(cfg.VirtualFactor)))+maxAddrLength+1),
 	}
-	for _, ins := range result.Instances {
-		info.addAllVirtual(ins)
-	}
+	info.batchAddAllVirtual(result.Instances)
+	//for _, ins := range result.Instances {
+	//	info.addAllVirtual(ins)
+	//}
 	return info
 }
 
@@ -88,6 +89,29 @@ func (info *ConsistInfo) removeAllVirtual(virtualLen int, b []byte, addrByte []b
 		vv := getVirtualNodeHash(b, addrByte, i)
 		info.virtualNodes.Delete(vv)
 	}
+}
+
+func (info *ConsistInfo) batchAddAllVirtual(realNode []discovery.Instance) {
+	totalLen := 0
+	for i := 0; i < len(realNode); i++ {
+		totalLen += info.getVirtualNodeLen(realNode[i])
+	}
+	vns := make([]virtualNode, totalLen)
+
+	b := info.cachedByte //make([]byte, 0, utils.GetUIntLen(uint64(l))+maxAddrLength+1)
+	var idx uint64 = 0
+	info.virtualNodes.PrepareNode(totalLen)
+	for i := 0; i < len(realNode); i++ {
+		vLen := info.getVirtualNodeLen(realNode[i])
+		addrByte := utils.StringToSliceByte(realNode[i].Address().String())
+		for j := 0; j < vLen; j++ {
+			vns[idx].realNode = realNode[i]
+			vns[idx].value = getVirtualNodeHash(b, addrByte, j)
+			info.virtualNodes.Insert(&vns[idx])
+			idx++
+		}
+	}
+
 }
 
 func (info *ConsistInfo) addAllVirtual(node discovery.Instance) {

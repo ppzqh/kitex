@@ -13,6 +13,8 @@ type skipList struct {
 
 	// only for insert and delete
 	cached []*virtualNode
+
+	moreCached []*virtualNode
 }
 
 // newSkipList returns a new skip list
@@ -31,6 +33,10 @@ func (sl *skipList) randomLevel() int {
 		level++
 	}
 	return level
+}
+
+func (sl *skipList) PrepareNode(num int) {
+	sl.moreCached = make([]*virtualNode, num*2)
 }
 
 // Insert inserts a node into the skip list
@@ -63,15 +69,23 @@ func (sl *skipList) Insert(n *virtualNode) {
 
 	// insert the node into the [0:level] levels of the list
 	newNode := n
-	n.next = makeNewVirtualNode(level) //make([]*virtualNode, level)
+	n.next = sl.makeNewVirtualNode(level) //make([]*virtualNode, level)
 	for i := 0; i < level; i++ {
 		newNode.next[i] = update[i].next[i]
 		update[i].next[i] = newNode
 	}
 }
 
-func makeNewVirtualNode(level int) []*virtualNode {
-	return make([]*virtualNode, level)
+func (sl *skipList) makeNewVirtualNode(num int) []*virtualNode {
+	cacheLen := len(sl.moreCached)
+	var res []*virtualNode
+	if cacheLen > num {
+		res = sl.moreCached[:num]
+		sl.moreCached = sl.moreCached[num:]
+	} else {
+		res = make([]*virtualNode, num)
+	}
+	return res
 }
 
 // Delete removes the nodes with the input value
