@@ -127,9 +127,9 @@ func (r *rpcStats) Record(ctx context.Context, e stats.Event, status stats.Statu
 	}
 	eve := NewEvent(e, status, info)
 	idx := e.Index()
-	r.Lock()
+	//r.Lock()
 	r.eventMap[idx] = eve
-	r.Unlock()
+	//r.Unlock()
 }
 
 // NewEvent creates a new Event based on the given event, status and info.
