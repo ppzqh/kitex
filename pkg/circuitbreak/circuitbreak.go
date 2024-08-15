@@ -19,6 +19,8 @@ package circuitbreak
 import (
 	"context"
 	"errors"
+	"github.com/cloudwego/kitex/pkg/klog"
+	"time"
 
 	"github.com/bytedance/gopkg/cloud/circuitbreaker"
 
@@ -78,15 +80,19 @@ type Control struct {
 func NewCircuitBreakerMW(control Control, panel circuitbreaker.Panel) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request, response interface{}) (err error) {
+			klog.CtxInfof(ctx, "[DEBUG] NewCircuitBreakerMW start, time=%s", time.Now())
 			key, enabled := control.GetKey(ctx, request)
 			if !enabled {
+				klog.CtxInfof(ctx, "[DEBUG] NewCircuitBreakerMW finish1, time=%s", time.Now())
 				return next(ctx, request, response)
 			}
 
 			if !panel.IsAllowed(key) {
+				klog.CtxInfof(ctx, "[DEBUG] NewCircuitBreakerMW finish2, time=%s", time.Now())
 				return control.DecorateError(ctx, request, kerrors.ErrCircuitBreak)
 			}
 
+			klog.CtxInfof(ctx, "[DEBUG] NewCircuitBreakerMW finish3, time=%s", time.Now())
 			err = next(ctx, request, response)
 			RecordStat(ctx, request, response, err, key, &control, panel)
 			return

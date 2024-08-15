@@ -97,6 +97,7 @@ func rpcTimeoutMW(mwCtx context.Context) endpoint.Middleware {
 
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request, response interface{}) error {
+			klog.CtxInfof(ctx, "[DEBUG] rpcTimeoutMW start, time=%s", time.Now())
 			ri := rpcinfo.GetRPCInfo(ctx)
 			if ri.Config().InteractionMode() == rpcinfo.Streaming {
 				return next(ctx, request, response)

@@ -106,7 +106,8 @@ func (m *MockWithMiddleware) EXPECT() *MockWithMiddlewareMockRecorder {
 }
 
 // ProxyMiddleware mocks base method.
-func (m *MockWithMiddleware) ProxyMiddleware() endpoint.Middleware {
+func (m *MockWithMiddleware)
+ProxyMiddleware() endpoint.Middleware {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ProxyMiddleware")
 	ret0, _ := ret[0].(endpoint.Middleware)

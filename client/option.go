@@ -92,6 +92,7 @@ func WithMiddleware(mw endpoint.Middleware) Option {
 		return mw
 	}
 	return Option{F: func(o *client.Options, di *utils.Slice) {
+		klog.Infof("[DEBUG] configure mw, name=%s", utils.GetFuncName(mw))
 		di.Push(fmt.Sprintf("WithMiddleware(%+v)", utils.GetFuncName(mw)))
 		o.MWBs = append(o.MWBs, mwb)
 	}}
@@ -100,6 +101,7 @@ func WithMiddleware(mw endpoint.Middleware) Option {
 // WithMiddlewareBuilder adds middleware that depend on context for client to handle request
 func WithMiddlewareBuilder(mwb endpoint.MiddlewareBuilder) Option {
 	return Option{F: func(o *client.Options, di *utils.Slice) {
+		klog.Infof("[DEBUG] configure mwbuilder, name=%s", utils.GetFuncName(mwb))
 		di.Push(fmt.Sprintf("WithMiddlewareBuilder(%+v)", utils.GetFuncName(mwb)))
 		o.MWBs = append(o.MWBs, mwb)
 	}}

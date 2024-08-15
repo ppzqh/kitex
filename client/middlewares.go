@@ -48,10 +48,13 @@ func newProxyMW(prx proxy.ForwardProxy) endpoint.Middleware {
 	}
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request, response interface{}) error {
+			klog.CtxInfof(ctx, "[DEBUG] newProxyMW start, time=%s", time.Now())
 			err := prx.ResolveProxyInstance(ctx)
 			if err != nil {
+				klog.Info("[DEBUG] newProxyMW finish, time=%s", time.Now())
 				return err
 			}
+			klog.CtxInfof(ctx, "[DEBUG] newProxyMW finish, time=%s", time.Now())
 			err = next(ctx, request, response)
 			return err
 		}
@@ -85,6 +88,7 @@ func newResolveMWBuilder(lbf *lbcache.BalancerFactory) endpoint.MiddlewareBuilde
 	return func(ctx context.Context) endpoint.Middleware {
 		return func(next endpoint.Endpoint) endpoint.Endpoint {
 			return func(ctx context.Context, request, response interface{}) error {
+				klog.CtxInfof(ctx, "[DEBUG] resolveMW start, time=%s", time.Now())
 				rpcInfo := rpcinfo.GetRPCInfo(ctx)
 
 				dest := rpcInfo.To()
@@ -120,6 +124,7 @@ func newResolveMWBuilder(lbf *lbcache.BalancerFactory) endpoint.MiddlewareBuilde
 					if ins == nil {
 						err = kerrors.ErrNoMoreInstance.WithCause(fmt.Errorf("last error: %w", lastErr))
 					} else {
+						klog.CtxInfof(ctx, "[DEBUG] resolveMW finish1, time=%s", time.Now())
 						remote.SetInstance(ins)
 						// TODO: generalize retry strategy
 						err = next(ctx, request, response)
