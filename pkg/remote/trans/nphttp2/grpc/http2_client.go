@@ -789,6 +789,7 @@ func (t *http2Client) handleData(f *grpcframe.DataFrame) {
 }
 
 func (t *http2Client) handleRSTStream(f *http2.RSTStreamFrame) {
+	klog.Errorf("[DEBUG-KITEX] handle rst stream, %s", f)
 	s := t.getStream(f)
 	if s == nil {
 		return
