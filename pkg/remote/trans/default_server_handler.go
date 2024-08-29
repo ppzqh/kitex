@@ -299,7 +299,7 @@ func (t *svrTransHandler) writeErrorReplyIfNeeded(
 	}
 	ctx, err = t.transPipe.Write(ctx, conn, errMsg)
 	if err != nil {
-		klog.CtxErrorf(ctx, "KITEX: write error reply failed, remote=%s, error=%s", conn.RemoteAddr(), err.Error())
+		klog.CtxErrorf(ctx, "KITEX: write error reply failed, remote=%s, error=%s, origin error=%s", conn.RemoteAddr(), err.Error(), transErr.Error())
 		return true
 	}
 	return
