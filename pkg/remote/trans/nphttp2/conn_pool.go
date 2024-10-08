@@ -19,6 +19,7 @@ package nphttp2
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"runtime"
 	"sync"
@@ -109,9 +110,9 @@ func (p *connPool) newTransport(ctx context.Context, dialer remote.Dialer, netwo
 		return nil, err
 	}
 	if opts.TLSConfig != nil {
-		tlsConn, err := newTLSConn(conn, opts.TLSConfig)
-		if err != nil {
-			return nil, err
+		tlsConn, tErr := newTLSConn(conn, opts.TLSConfig)
+		if tErr != nil {
+			return nil, fmt.Errorf("remoteAddress=%s, error=%v", address, tErr)
 		}
 		conn = tlsConn
 	}
