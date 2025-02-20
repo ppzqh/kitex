@@ -274,11 +274,7 @@ type writer struct {
 	buffer *sliceBuffer
 }
 
-// Malloc 分配 n 字节
 func (w *writer) Malloc(n int) ([]byte, error) {
-	//if n < w.buffer.chunkSize {
-	//	n = w.buffer.chunkSize
-	//}
 	buf := w.buffer.malloc(n)
 	if buf == nil {
 		return nil, fmt.Errorf("malloc failed")
@@ -286,12 +282,10 @@ func (w *writer) Malloc(n int) ([]byte, error) {
 	return buf, nil
 }
 
-// MallocLen 返回当前已分配但未确认的数据大小
 func (w *writer) MallocLen() int {
 	return w.buffer.writeSize
 }
 
-// MallocAck 确认 n 字节已使用
 func (w *writer) MallocAck(n int) error {
 	if n > w.buffer.writeSize {
 		return fmt.Errorf("ack size exceeds allocated size")
@@ -300,22 +294,20 @@ func (w *writer) MallocAck(n int) error {
 	return nil
 }
 
-// Append 追加另一个 writer 的数据
 func (w *writer) Append(w2 *writer) error {
-	data, err := w2.buffer.read(w2.buffer.readableLen(), true)
-	if err != nil {
-		return err
-	}
-	_, err = w.WriteBinary(data)
-	return err
+	panic("not implemented")
+	//data, err := w2.buffer.read(w2.buffer.readableLen(), true)
+	//if err != nil {
+	//	return err
+	//}
+	//_, err = w.WriteBinary(data)
+	//return err
 }
 
-// WriteString 写入字符串
 func (w *writer) WriteString(s string) (int, error) {
 	return w.WriteBinary(utils.StringToSliceByte(s))
 }
 
-// WriteBinary 写入二进制数据
 func (w *writer) WriteBinary(b []byte) (int, error) {
 	buf, err := w.Malloc(len(b))
 	if err != nil {
@@ -325,7 +317,7 @@ func (w *writer) WriteBinary(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// WriteDirect 直接写入数据
+// FIXME: optimize with nocopy
 func (w *writer) WriteDirect(p []byte, remainCap int) error {
 	if len(p)+remainCap > w.buffer.chunkSize {
 		return fmt.Errorf("not enough space in buffer")
@@ -334,7 +326,6 @@ func (w *writer) WriteDirect(p []byte, remainCap int) error {
 	return err
 }
 
-// Flush 将 buffer 中的数据写入 `w`，然后清空 buffer
 func (w *writer) Flush() error {
 	// 读取 buffer 中所有数据
 	data, err := w.buffer.read(w.buffer.readableLen(), true)
