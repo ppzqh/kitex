@@ -65,8 +65,8 @@ func (b *sliceBuffer) malloc(size int) []byte {
 		} else {
 			newChunk = mcache.Malloc(b.chunkSize, b.chunkSize) //make([]byte, b.chunkSize)
 		}
-		//b.chunks[b.writeChunk] = b.chunks[b.writeChunk][:b.writeOffset] // fix the curr chunk
-		b.chunks = append(b.chunks, newChunk) // append the new chunk
+		b.chunks[b.writeChunk] = b.chunks[b.writeChunk][:b.writeOffset] // fix the curr chunk
+		b.chunks = append(b.chunks, newChunk)                           // append the new chunk
 		b.writeChunk++
 		b.writeOffset = 0
 	}
@@ -334,10 +334,10 @@ func (w *writer) Flush() error {
 	}
 
 	// 将数据写入 `w`
-	if _, err := w.dst.Write(data); err != nil {
+	_, err = w.dst.Write(data)
+	if err != nil {
 		return err
 	}
-
 	w.buffer.release()
 	w.dst = nil
 	w.buffer = nil
