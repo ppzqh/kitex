@@ -40,7 +40,7 @@ type gonetConnExtension struct{}
 
 // SetReadTimeout implements the trans.Extension interface.
 func (e *gonetConnExtension) SetReadTimeout(ctx context.Context, conn net.Conn, cfg rpcinfo.RPCConfig, role remote.RPCRole) {
-	// Do nothing.
+	// FIXME
 }
 
 // NewWriteByteBuffer implements the trans.Extension interface.
