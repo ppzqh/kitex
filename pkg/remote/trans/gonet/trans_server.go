@@ -90,7 +90,7 @@ func (ts *transServer) BootstrapServer(ln net.Listener) (err error) {
 			defer func() {
 				transRecover(ctx, conn, "OnRead")
 			}()
-			bc := newBufioConn(conn)
+			bc := conn //newBufioConn(conn)
 			ctx, err = ts.transHdlr.OnActive(ctx, bc)
 			if err != nil {
 				klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)

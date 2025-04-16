@@ -36,5 +36,38 @@ type dialer struct {
 func (d *dialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return d.DialContext(ctx, network, address)
+	conn, err := d.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return newGonetConn(conn), nil
+}
+
+type gonetConn struct {
+	buf [1]byte
+	net.Conn
+}
+
+func newGonetConn(conn net.Conn) *gonetConn {
+	return &gonetConn{
+		Conn: conn,
+	}
+}
+
+// only for pingpong now.
+func (c *gonetConn) IsActive() bool {
+	c.SetReadDeadline(time.Now())
+	defer c.SetReadDeadline(time.Time{})
+
+	n, err := c.Read(c.buf[:])
+	if n == 1 {
+		panic("should not get any data")
+	}
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return true
+		}
+		return false
+	}
+	return true
 }
