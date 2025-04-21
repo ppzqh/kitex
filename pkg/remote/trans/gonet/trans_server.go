@@ -21,12 +21,11 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
 	"runtime/debug"
 	"sync"
 	"time"
 
-	"github.com/cloudwego/netpoll"
+	"github.com/cloudwego/gopkg/bufiox"
 
 	"github.com/cloudwego/kitex/pkg/remote/trans"
 
@@ -71,7 +70,7 @@ func (ts *transServer) CreateListener(addr net.Addr) (ln net.Listener, err error
 }
 
 // BootstrapServer implements the remote.TransServer interface.
-func (ts *transServer) BootstrapServer(ln net.Listener) (err error) {
+func (ts *transServer) BootstrapServer(ln net.Listener) error {
 	if ln == nil {
 		return errors.New("listener is nil in gonet transport server")
 	}
@@ -80,17 +79,22 @@ func (ts *transServer) BootstrapServer(ln net.Listener) (err error) {
 		conn, err := ts.ln.Accept()
 		if err != nil {
 			klog.Errorf("KITEX: BootstrapServer accept failed, err=%s", err.Error())
-			os.Exit(1)
+			return err
 		}
 		go func() {
 			var (
-				ctx = context.Background()
-				err error
+				ctx    = context.Background()
+				err    error
+				bc     = newBufioConn(conn)
+				closed bool
 			)
 			defer func() {
 				transRecover(ctx, conn, "OnRead")
+				if !closed {
+					bc.Close()
+				}
 			}()
-			bc := conn //newBufioConn(conn)
+
 			ctx, err = ts.transHdlr.OnActive(ctx, bc)
 			if err != nil {
 				klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)
@@ -100,6 +104,7 @@ func (ts *transServer) BootstrapServer(ln net.Listener) (err error) {
 			ctx = context.WithValue(ctx, trans.CtxKeyOnRead{}, ctxValueOnRead)
 			onReadOnlyOnceCheck := false
 			for {
+				bc.r.Peek(1)
 				ts.refreshDeadline(rpcinfo.GetRPCInfo(ctx), bc)
 				err := ts.transHdlr.OnRead(ctx, bc)
 				if !onReadOnlyOnceCheck {
@@ -111,8 +116,10 @@ func (ts *transServer) BootstrapServer(ln net.Listener) (err error) {
 				if err != nil {
 					ts.onError(ctx, err, bc)
 					_ = bc.Close()
+					closed = true
 					return
 				}
+				bc.r.Release(nil)
 			}
 		}()
 	}
@@ -147,72 +154,36 @@ func (ts *transServer) onError(ctx context.Context, err error, conn net.Conn) {
 }
 
 func (ts *transServer) refreshDeadline(ri rpcinfo.RPCInfo, conn net.Conn) {
-	// ReadWriteTimeout indicates the maximum time to read a message from the connection since it received a read event,
-	// so it's not suitable for bio mode like gonet, modify the default setting to 2 minutes to make sure it's greater
-	// than the client idle timeout.
-
-	// readTimeout := ri.Config().ReadWriteTimeout()
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+	readTimeout := ri.Config().ReadWriteTimeout()
+	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
 }
 
 // bufioConn implements the net.Conn interface.
+// read via bufiox.Reader and write directly to the connection.
 type bufioConn struct {
-	conn net.Conn
-	r    netpoll.Reader
+	net.Conn
+	r bufiox.Reader
 }
 
 func newBufioConn(c net.Conn) *bufioConn {
-	return &bufioConn{
-		conn: c,
-		r:    netpoll.NewReader(c),
-	}
-}
-
-func (bc *bufioConn) RawConn() net.Conn {
-	return bc.conn
+	r := readerPool.Get().(*bufiox.DefaultReader)
+	r.SetReader(c)
+	return &bufioConn{Conn: c, r: r}
 }
 
 func (bc *bufioConn) Read(b []byte) (int, error) {
-	buf, err := bc.r.Next(len(b))
-	if err != nil {
-		return 0, err
-	}
-	copy(b, buf)
-	return len(b), nil
-}
-
-func (bc *bufioConn) Write(b []byte) (int, error) {
-	return bc.conn.Write(b)
+	return bc.r.ReadBinary(b)
 }
 
 func (bc *bufioConn) Close() error {
-	bc.r.Release()
-	return bc.conn.Close()
+	bc.r.Release(nil)
+	return bc.Conn.Close()
 }
 
-func (bc *bufioConn) LocalAddr() net.Addr {
-	return bc.conn.LocalAddr()
-}
-
-func (bc *bufioConn) RemoteAddr() net.Addr {
-	return bc.conn.RemoteAddr()
-}
-
-func (bc *bufioConn) SetDeadline(t time.Time) error {
-	return bc.conn.SetDeadline(t)
-}
-
-func (bc *bufioConn) SetReadDeadline(t time.Time) error {
-	return bc.conn.SetReadDeadline(t)
-}
-
-func (bc *bufioConn) SetWriteDeadline(t time.Time) error {
-	return bc.conn.SetWriteDeadline(t)
-}
-
-func (bc *bufioConn) Reader() netpoll.Reader {
-	return bc.r
-}
+// FIXME: gRPC framer relies on netpoll.Reader. cannot modify here.
+//func (bc *bufioConn) Reader() netpoll.Reader {
+//	return bc.npReader
+//}
 
 func transRecover(ctx context.Context, conn net.Conn, funcName string) {
 	panicErr := recover()

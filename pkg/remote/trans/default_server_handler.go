@@ -102,9 +102,10 @@ func (t *svrTransHandler) Read(ctx context.Context, conn net.Conn, recvMsg remot
 		t.ext.ReleaseBuffer(bufReader, err)
 		rpcinfo.Record(ctx, ri, stats.ReadFinish, err)
 	}()
-	rpcinfo.Record(ctx, ri, stats.ReadStart, nil)
-
 	bufReader = t.ext.NewReadByteBuffer(ctx, conn, recvMsg)
+	bufReader.Peek(1)
+
+	rpcinfo.Record(ctx, ri, stats.ReadStart, nil)
 	if codec, ok := t.codec.(remote.MetaDecoder); ok {
 		if err = codec.DecodeMeta(ctx, recvMsg, bufReader); err == nil {
 			if t.opt.Profiler != nil && t.opt.ProfilerTransInfoTagging != nil && recvMsg.TransInfo() != nil {

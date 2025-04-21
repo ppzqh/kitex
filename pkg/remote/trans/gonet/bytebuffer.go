@@ -28,19 +28,23 @@ import (
 )
 
 var (
-	rwPool     sync.Pool
-	readerPool sync.Pool
-	writerPool sync.Pool
+	rwPool     = sync.Pool{New: func() any { return &bufferReadWriter{} }}
+	readerPool = sync.Pool{New: func() any {
+		return &bufiox.DefaultReader{}
+	}}
+	writerPool = sync.Pool{New: func() any { return &bufiox.DefaultWriter{} }}
 )
 
-func init() {
-	rwPool.New = newBufferReadWriter
-	readerPool.New = func() interface{} {
-		return &bufiox.DefaultReader{}
-	}
-	writerPool.New = func() interface{} {
-		return &bufiox.DefaultWriter{}
-	}
+func getReader(io io.Reader) *bufiox.DefaultReader {
+	r := readerPool.Get().(*bufiox.DefaultReader)
+	r.SetReader(io)
+	return r
+}
+
+func getWriter(io io.Writer) *bufiox.DefaultWriter {
+	w := writerPool.Get().(*bufiox.DefaultWriter)
+	w.SetWriter(io)
+	return w
 }
 
 func recycleReader(r *bufiox.DefaultReader) {
@@ -66,19 +70,17 @@ type bufferReadWriter struct {
 	status   int
 }
 
-func newBufferReadWriter() interface{} {
-	return &bufferReadWriter{}
-}
-
 // NewBufferReader creates a new remote.ByteBuffer using the given netpoll.ZeroCopyReader.
 func NewBufferReader(ir io.Reader) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
+	if bc, ok := ir.(*bufioConn); ok {
+		rw.reader = bc.r
+		rw.ioReader = bc
+	} else {
+		rw.reader = getReader(ir)
+		rw.ioReader = ir
+	}
 
-	r := readerPool.Get().(*bufiox.DefaultReader)
-	r.SetReader(ir)
-	rw.reader = r // bufiox.NewDefaultReader(ir)
-
-	rw.ioReader = ir
 	rw.status = remote.BitReadable
 	rw.readSize = 0
 	return rw
@@ -87,11 +89,7 @@ func NewBufferReader(ir io.Reader) remote.ByteBuffer {
 // NewBufferWriter creates a new remote.ByteBuffer using the given netpoll.ZeroCopyWriter.
 func NewBufferWriter(iw io.Writer) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
-
-	w := writerPool.Get().(*bufiox.DefaultWriter)
-	w.SetWriter(iw)
-	rw.writer = w
-
+	rw.writer = getWriter(iw)
 	rw.ioWriter = iw
 	rw.status = remote.BitWritable
 	return rw
@@ -100,16 +98,15 @@ func NewBufferWriter(iw io.Writer) remote.ByteBuffer {
 // NewBufferReadWriter creates a new remote.ByteBuffer using the given netpoll.ZeroCopyReadWriter.
 func NewBufferReadWriter(irw io.ReadWriter) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
-	r := readerPool.Get().(*bufiox.DefaultReader)
-	r.SetReader(irw)
-	rw.reader = r
-
-	w := writerPool.Get().(*bufiox.DefaultWriter)
-	w.SetWriter(irw)
-	rw.writer = w
-
+	if bc, ok := irw.(*bufioConn); ok {
+		rw.reader = bc.r
+		rw.ioReader = bc
+	} else {
+		rw.reader = getReader(irw)
+		rw.ioReader = irw
+	}
+	rw.writer = getWriter(irw)
 	rw.ioWriter = irw
-	rw.ioReader = irw
 	rw.status = remote.BitWritable | remote.BitReadable
 	return rw
 }
@@ -224,16 +221,15 @@ func (rw *bufferReadWriter) Write(p []byte) (n int, err error) {
 	if !rw.writable() {
 		return -1, errors.New("unwritable buffer, cannot support Write")
 	}
-	if rw.ioWriter != nil {
-		return rw.ioWriter.Write(p)
-	}
-	return -1, errors.New("ioWriter is nil")
+	return rw.writer.WriteBinary(p)
 }
 
 func (rw *bufferReadWriter) Release(e error) (err error) {
 	if rw.reader != nil {
-		err = rw.reader.Release(e)
-		recycleReader(rw.reader.(*bufiox.DefaultReader))
+		if _, ok := rw.ioReader.(*bufioConn); !ok {
+			err = rw.reader.Release(e)
+			recycleReader(rw.reader.(*bufiox.DefaultReader))
+		}
 	}
 	if rw.writer != nil {
 		recycleWriter(rw.writer.(*bufiox.DefaultWriter))
@@ -243,7 +239,6 @@ func (rw *bufferReadWriter) Release(e error) (err error) {
 	return
 }
 
-// WriteDirect is a way to write []byte without copying, and splits the original buffer.
 func (rw *bufferReadWriter) WriteDirect(p []byte, remainCap int) error {
 	if !rw.writable() {
 		return errors.New("unwritable buffer, cannot support WriteBinary")
