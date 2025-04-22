@@ -19,6 +19,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/cloudwego/gopkg/bufiox"
 	"github.com/cloudwego/netpoll"
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2"
@@ -104,7 +105,7 @@ func (fc *frameCache) getDataFrame() *DataFrame {
 }
 
 // NewFramer returns a Framer that writes frames to w and reads them from r.
-func NewFramer(w io.Writer, r netpoll.Reader) *Framer {
+func NewFramer(w io.Writer, r bufiox.Reader) *Framer {
 	fr := &Framer{
 		writer: w,
 		reader: r,

@@ -19,6 +19,7 @@ package nphttp2
 import (
 	"context"
 	"errors"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,7 +28,8 @@ import (
 
 	"github.com/golang/mock/gomock"
 
-	"github.com/cloudwego/kitex/internal/mocks/netpoll"
+	"github.com/cloudwego/gopkg/bufiox"
+	mockBufiox "github.com/cloudwego/kitex/internal/mocks/bufiox"
 	mocksremote "github.com/cloudwego/kitex/internal/mocks/remote"
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/kerrors"
@@ -310,29 +312,35 @@ func Test_invokeStreamUnaryHandler(t *testing.T) {
 	})
 }
 
+type mockConnWithBufioxReader struct {
+	net.Conn
+	r bufiox.Reader
+}
+
+func (c *mockConnWithBufioxReader) Reader() bufiox.Reader {
+	return c.r
+}
+
 func TestSvrTransHandlerProtocolMatch(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	th := &svrTransHandler{}
-	// netpoll reader
+	// bufiox reader
 	// 1. success
-	reader := netpoll.NewMockReader(ctrl)
+	reader := mockBufiox.NewMockReader(ctrl)
 	reader.EXPECT().Peek(prefaceReadAtMost).Times(1).Return(grpcTransport.ClientPreface, nil)
-	conn := netpoll.NewMockConnection(ctrl)
-	conn.EXPECT().Reader().AnyTimes().Return(reader)
+	conn := &mockConnWithBufioxReader{r: reader}
 	err := th.ProtocolMatch(context.Background(), conn)
 	test.Assert(t, err == nil, err)
 	// 2. failed, no reader
-	conn = netpoll.NewMockConnection(ctrl)
-	conn.EXPECT().Reader().AnyTimes().Return(nil)
+	conn = &mockConnWithBufioxReader{}
 	err = th.ProtocolMatch(context.Background(), conn)
 	test.Assert(t, err != nil, err)
 	// 3. failed, wrong preface
-	failedReader := netpoll.NewMockReader(ctrl)
+	failedReader := mockBufiox.NewMockReader(ctrl)
 	failedReader.EXPECT().Peek(prefaceReadAtMost).Times(1).Return([]byte{}, nil)
-	conn = netpoll.NewMockConnection(ctrl)
-	conn.EXPECT().Reader().AnyTimes().Return(failedReader)
+	conn = &mockConnWithBufioxReader{r: failedReader}
 	err = th.ProtocolMatch(context.Background(), conn)
 	test.Assert(t, err != nil, err)
 

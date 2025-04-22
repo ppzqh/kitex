@@ -20,6 +20,8 @@ import (
 	"io"
 	"net"
 
+	"github.com/cloudwego/gopkg/bufiox"
+
 	"github.com/bytedance/gopkg/lang/dirtmake"
 	"github.com/cloudwego/netpoll"
 	"golang.org/x/net/http2/hpack"
@@ -29,16 +31,20 @@ import (
 
 type framer struct {
 	*grpcframe.Framer
-	reader netpoll.Reader
+	reader bufiox.Reader
 	writer *bufWriter
 }
 
 func newFramer(conn net.Conn, writeBufferSize, readBufferSize, maxHeaderListSize uint32) *framer {
-	var r netpoll.Reader
-	if npConn, ok := conn.(interface{ Reader() netpoll.Reader }); ok {
-		r = npConn.Reader()
+	var r bufiox.Reader
+	if bc, ok := conn.(interface{ Reader() bufiox.Reader }); ok {
+		r = bc.Reader()
 	} else {
-		r = netpoll.NewReader(conn)
+		if npConn, ok := conn.(interface{ Reader() netpoll.Reader }); ok {
+			r = &np2BufioxReader{Reader: npConn.Reader()}
+		} else {
+			r = bufiox.NewDefaultReader(conn)
+		}
 	}
 	w := newBufWriter(conn, int(writeBufferSize))
 	fr := &framer{
@@ -100,4 +106,33 @@ func (w *bufWriter) Flush() error {
 	_, w.err = w.writer.Write(w.buf[:w.offset])
 	w.offset = 0
 	return w.err
+}
+
+var _ bufiox.Reader = &np2BufioxReader{}
+
+type np2BufioxReader struct {
+	netpoll.Reader
+	readLen int
+}
+
+func (r *np2BufioxReader) ReadLen() (n int) {
+	// FIXME
+	return r.readLen
+}
+
+func (r *np2BufioxReader) Release(e error) (err error) {
+	return r.Reader.Release()
+}
+
+func (r *np2BufioxReader) Next(n int) (p []byte, err error) {
+	return r.Reader.Next(n)
+}
+
+func (r *np2BufioxReader) ReadBinary(bs []byte) (n int, err error) {
+	p, err := r.Next(len(bs))
+	if err != nil {
+		return 0, err
+	}
+	n = copy(bs, p)
+	return n, nil
 }
