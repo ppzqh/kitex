@@ -74,7 +74,7 @@ type bufferReadWriter struct {
 func NewBufferReader(ir io.Reader) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
 	if bc, ok := ir.(*bufioConn); ok {
-		rw.reader = bc.r
+		rw.reader = bc.Reader()
 		rw.ioReader = bc
 	} else {
 		rw.reader = getReader(ir)
@@ -99,7 +99,7 @@ func NewBufferWriter(iw io.Writer) remote.ByteBuffer {
 func NewBufferReadWriter(irw io.ReadWriter) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
 	if bc, ok := irw.(*bufioConn); ok {
-		rw.reader = bc.r
+		rw.reader = bc.Reader()
 		rw.ioReader = bc
 	} else {
 		rw.reader = getReader(irw)

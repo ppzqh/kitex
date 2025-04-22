@@ -29,6 +29,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudwego/gopkg/bufiox"
+
 	"github.com/cloudwego/kitex/pkg/remote/trans"
 
 	"github.com/cloudwego/netpoll"
@@ -94,11 +96,9 @@ var prefaceReadAtMost = func() int {
 
 func (t *svrTransHandler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 	// Check the validity of client preface.
-	// FIXME: should not rely on netpoll.Reader
-	if withReader, ok := conn.(interface{ Reader() netpoll.Reader }); ok {
-		if npReader := withReader.Reader(); npReader != nil {
-			// read at most avoid block
-			preface, err := npReader.Peek(prefaceReadAtMost)
+	if withReader, ok := conn.(interface{ Reader() bufiox.Reader }); ok {
+		if br := withReader.Reader(); br != nil {
+			preface, err := br.Peek(prefaceReadAtMost)
 			if err != nil {
 				return err
 			}

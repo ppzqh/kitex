@@ -23,6 +23,7 @@ import (
 	"net"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/gopkg/bufiox"
@@ -57,6 +58,7 @@ type transServer struct {
 	ln        net.Listener
 	lncfg     net.ListenConfig
 	connCount utils.AtomicInt
+	shutdown  atomic.Bool
 	sync.Mutex
 }
 
@@ -74,59 +76,73 @@ func (ts *transServer) BootstrapServer(ln net.Listener) error {
 	if ln == nil {
 		return errors.New("listener is nil in gonet transport server")
 	}
+	ts.Lock()
 	ts.ln = ln
+	ts.Unlock()
+
 	for {
 		conn, err := ts.ln.Accept()
 		if err != nil {
+			if ts.shutdown.Load() {
+				// shutdown
+				return nil
+			}
 			klog.Errorf("KITEX: BootstrapServer accept failed, err=%s", err.Error())
 			return err
 		}
-		go func() {
-			var (
-				ctx    = context.Background()
-				err    error
-				bc     = newBufioConn(conn)
-				closed bool
-			)
-			defer func() {
-				transRecover(ctx, conn, "OnRead")
-				if !closed {
-					bc.Close()
-				}
-			}()
+		ts.handleConn(conn)
+	}
+}
 
-			ctx, err = ts.transHdlr.OnActive(ctx, bc)
-			if err != nil {
-				klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)
-				return
-			}
-			ctxValueOnRead := &trans.CtxValueOnRead{}
-			ctx = context.WithValue(ctx, trans.CtxKeyOnRead{}, ctxValueOnRead)
-			onReadOnlyOnceCheck := false
-			for {
-				bc.r.Peek(1)
-				ts.refreshDeadline(rpcinfo.GetRPCInfo(ctx), bc)
-				err := ts.transHdlr.OnRead(ctx, bc)
-				if !onReadOnlyOnceCheck {
-					onReadOnlyOnceCheck = true
-					if ctxValueOnRead.GetOnlyOnce() {
-						break
-					}
-				}
-				if err != nil {
-					ts.onError(ctx, err, bc)
-					_ = bc.Close()
-					closed = true
-					return
-				}
-				bc.r.Release(nil)
+func (ts *transServer) handleConn(conn net.Conn) {
+	go func() {
+		var (
+			ctx    = context.Background()
+			err    error
+			bc     = newBufioConn(conn)
+			closed bool
+		)
+		defer func() {
+			transRecover(ctx, conn, "OnRead")
+			if !closed {
+				bc.Close()
 			}
 		}()
-	}
+
+		ctx, err = ts.transHdlr.OnActive(ctx, bc)
+		if err != nil {
+			klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)
+			return
+		}
+		ctxValueOnRead := &trans.CtxValueOnRead{}
+		ctx = context.WithValue(ctx, trans.CtxKeyOnRead{}, ctxValueOnRead)
+		onReadOnlyOnceCheck := false
+		for {
+			// block to wait for next request
+			bc.r.Peek(1)
+			ts.refreshDeadline(rpcinfo.GetRPCInfo(ctx), bc)
+			err := ts.transHdlr.OnRead(ctx, bc)
+			if !onReadOnlyOnceCheck {
+				onReadOnlyOnceCheck = true
+				if ctxValueOnRead.GetOnlyOnce() {
+					break
+				}
+			}
+			if err != nil {
+				ts.onError(ctx, err, bc)
+				_ = bc.Close()
+				closed = true
+				return
+			}
+			bc.r.Release(nil)
+		}
+	}()
 }
 
 // Shutdown implements the remote.TransServer interface.
 func (ts *transServer) Shutdown() (err error) {
+	ts.shutdown.Store(true)
+
 	ts.Lock()
 	defer ts.Unlock()
 
@@ -162,7 +178,8 @@ func (ts *transServer) refreshDeadline(ri rpcinfo.RPCInfo, conn net.Conn) {
 // read via bufiox.Reader and write directly to the connection.
 type bufioConn struct {
 	net.Conn
-	r bufiox.Reader
+	r      bufiox.Reader
+	closed atomic.Bool
 }
 
 func newBufioConn(c net.Conn) *bufioConn {
@@ -176,14 +193,15 @@ func (bc *bufioConn) Read(b []byte) (int, error) {
 }
 
 func (bc *bufioConn) Close() error {
-	bc.r.Release(nil)
-	return bc.Conn.Close()
+	if bc.closed.CompareAndSwap(false, true) {
+		bc.r.Release(nil)
+		return bc.Conn.Close()
+	}
+	return nil
 }
-
-// FIXME: gRPC framer relies on netpoll.Reader. cannot modify here.
-//func (bc *bufioConn) Reader() netpoll.Reader {
-//	return bc.npReader
-//}
+func (bc *bufioConn) Reader() bufiox.Reader {
+	return bc.r
+}
 
 func transRecover(ctx context.Context, conn net.Conn, funcName string) {
 	panicErr := recover()

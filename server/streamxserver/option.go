@@ -19,7 +19,7 @@ package streamxserver
 import (
 	internal_server "github.com/cloudwego/kitex/internal/server"
 	"github.com/cloudwego/kitex/pkg/remote/trans/detection"
-	"github.com/cloudwego/kitex/pkg/remote/trans/netpoll"
+	"github.com/cloudwego/kitex/pkg/remote/trans/gonet"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2"
 	streamxstrans "github.com/cloudwego/kitex/pkg/remote/trans/streamx"
 	"github.com/cloudwego/kitex/pkg/streamx"
@@ -33,7 +33,8 @@ func WithProvider(provider streamx.ServerProvider) server.Option {
 		o.StreamX.Provider = provider
 		// streamx provider server trans handler can use with other protocol
 		o.RemoteOpt.SvrHandlerFactory = detection.NewSvrTransHandlerFactory(
-			netpoll.NewSvrTransHandlerFactory(),
+			//netpoll.NewSvrTransHandlerFactory(),
+			gonet.NewSvrTransHandlerFactory(),
 			streamxstrans.NewSvrTransHandlerFactory(provider),
 			nphttp2.NewSvrTransHandlerFactory(),
 		)

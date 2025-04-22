@@ -38,6 +38,7 @@ import (
 	istreamxserver "github.com/cloudwego/kitex/internal/streamx/streamxserver"
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/endpoint"
+	knetpoll "github.com/cloudwego/kitex/pkg/remote/trans/netpoll"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/streamx"
 	"github.com/cloudwego/kitex/pkg/streamx/provider/ttstream"
@@ -80,6 +81,7 @@ func NewTestServer(serviceImpl TestService, opts ...server.Option) (string, serv
 	options := []server.Option{
 		server.WithListener(ln),
 		server.WithExitWaitTime(time.Millisecond * 10),
+		server.WithTransServerFactory(knetpoll.NewTransServerFactory()),
 	}
 	options = append(options, opts...)
 	svr := NewServer(serviceImpl, options...)
