@@ -26,8 +26,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cloudwego/gopkg/bufiox"
-
 	"github.com/cloudwego/kitex/pkg/remote/trans"
 
 	"github.com/cloudwego/kitex/pkg/klog"
@@ -172,35 +170,6 @@ func (ts *transServer) onError(ctx context.Context, err error, conn net.Conn) {
 func (ts *transServer) refreshDeadline(ri rpcinfo.RPCInfo, conn net.Conn) {
 	readTimeout := ri.Config().ReadWriteTimeout()
 	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
-}
-
-// bufioConn implements the net.Conn interface.
-// read via bufiox.Reader and write directly to the connection.
-type bufioConn struct {
-	net.Conn
-	r      bufiox.Reader
-	closed atomic.Bool
-}
-
-func newBufioConn(c net.Conn) *bufioConn {
-	r := readerPool.Get().(*bufiox.DefaultReader)
-	r.SetReader(c)
-	return &bufioConn{Conn: c, r: r}
-}
-
-func (bc *bufioConn) Read(b []byte) (int, error) {
-	return bc.r.ReadBinary(b)
-}
-
-func (bc *bufioConn) Close() error {
-	if bc.closed.CompareAndSwap(false, true) {
-		bc.r.Release(nil)
-		return bc.Conn.Close()
-	}
-	return nil
-}
-func (bc *bufioConn) Reader() bufiox.Reader {
-	return bc.r
 }
 
 func transRecover(ctx context.Context, conn net.Conn, funcName string) {

@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/cloudwego/gopkg/bufiox"
-	"github.com/cloudwego/netpoll"
 	"golang.org/x/net/http/httpguts"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
@@ -35,7 +34,7 @@ type Framer struct {
 	lastHeaderStream uint32
 	lastFrame        http2.Frame
 
-	reader      netpoll.Reader
+	reader      bufiox.Reader
 	maxReadSize uint32
 
 	writer io.Writer

@@ -96,15 +96,26 @@ var prefaceReadAtMost = func() int {
 
 func (t *svrTransHandler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 	// Check the validity of client preface.
+	var peekReader interface {
+		Peek(n int) (buf []byte, err error)
+	}
 	if withReader, ok := conn.(interface{ Reader() bufiox.Reader }); ok {
 		if br := withReader.Reader(); br != nil {
-			preface, err := br.Peek(prefaceReadAtMost)
-			if err != nil {
-				return err
-			}
-			if len(preface) >= prefaceReadAtMost && bytes.Equal(preface[:prefaceReadAtMost], grpcTransport.ClientPreface[:prefaceReadAtMost]) {
-				return nil
-			}
+			peekReader = br
+		}
+	}
+	if withReader, ok := conn.(interface{ Reader() netpoll.Reader }); ok {
+		if br := withReader.Reader(); br != nil {
+			peekReader = br
+		}
+	}
+	if peekReader != nil {
+		preface, err := peekReader.Peek(prefaceReadAtMost)
+		if err != nil {
+			return err
+		}
+		if len(preface) >= prefaceReadAtMost && bytes.Equal(preface[:prefaceReadAtMost], grpcTransport.ClientPreface[:prefaceReadAtMost]) {
+			return nil
 		}
 	}
 	return errors.New("error protocol not match")
