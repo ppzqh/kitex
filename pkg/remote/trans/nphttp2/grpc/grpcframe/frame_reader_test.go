@@ -30,7 +30,6 @@ import (
 )
 
 type mockNetpollReader struct {
-	//netpoll.Reader
 	bufiox.Reader
 	buf []byte
 }

@@ -45,11 +45,10 @@ type MockSvrTransHandler struct {
 	Opt       *remote.ServerOption
 	transPipe *remote.TransPipeline
 
-	OnReadFunc func(ctx context.Context, conn net.Conn) error
-
-	WriteFunc func(ctx context.Context, conn net.Conn, send remote.Message) (nctx context.Context, err error)
-
-	ReadFunc func(ctx context.Context, conn net.Conn, msg remote.Message) (nctx context.Context, err error)
+	OnActiveFunc func(ctx context.Context, conn net.Conn) (context.Context, error)
+	OnReadFunc   func(ctx context.Context, conn net.Conn) error
+	WriteFunc    func(ctx context.Context, conn net.Conn, send remote.Message) (nctx context.Context, err error)
+	ReadFunc     func(ctx context.Context, conn net.Conn, msg remote.Message) (nctx context.Context, err error)
 }
 
 // OnRead implements the remote.TransHandler interface.
@@ -84,7 +83,9 @@ func (t *MockSvrTransHandler) OnMessage(ctx context.Context, args, result remote
 
 // OnActive implements the remote.TransHandler interface.
 func (t *MockSvrTransHandler) OnActive(ctx context.Context, conn net.Conn) (context.Context, error) {
-	// ineffective now and do nothing
+	if t.OnActiveFunc != nil {
+		return t.OnActiveFunc(ctx, conn)
+	}
 	return ctx, nil
 }
 

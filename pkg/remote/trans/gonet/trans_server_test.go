@@ -18,8 +18,11 @@ package gonet
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +43,12 @@ var (
 	transSvr     *transServer
 	svrOpt       *remote.ServerOption
 )
+
+// MockGonetConn 模拟 gonet 连接
+type MockGonetConn struct {
+	mocks.Conn
+	SetReadTimeoutFunc func(timeout time.Duration) error
+}
 
 func TestMain(m *testing.M) {
 	svcInfo := mocks.ServiceInfo()
@@ -94,4 +103,101 @@ func TestCreateListener(t *testing.T) {
 	test.Assert(t, err == nil, err)
 	test.Assert(t, ln.Addr().String() == addrStr)
 	ln.Close()
+}
+
+// TestBootStrap test trans_server BootstrapServer success
+func TestBootStrap(t *testing.T) {
+	// tcp init
+	addrStr := "127.0.0.1:9093"
+	addr = utils.NewNetAddr("tcp", addrStr)
+
+	// test
+	ln, err := transSvr.CreateListener(addr)
+	test.Assert(t, err == nil, err)
+	test.Assert(t, ln.Addr().String() == addrStr)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		err = transSvr.BootstrapServer(ln)
+		test.Assert(t, err == nil, err)
+		wg.Done()
+	}()
+	time.Sleep(10 * time.Millisecond)
+
+	transSvr.Shutdown()
+	wg.Wait()
+}
+
+func TestHandleConn(t *testing.T) {
+	isClosed := false
+	mockConn := &MockGonetConn{
+		Conn: mocks.Conn{
+			RemoteAddrFunc: func() net.Addr {
+				return addr
+			},
+			CloseFunc: func() (e error) {
+				isClosed = true
+				return nil
+			},
+		},
+	}
+	// OnActive
+	connCnt := 0
+	expectedErr := fmt.Errorf("OnActiveError")
+	transSvr.transHdlr = &mocks.MockSvrTransHandler{
+		OnActiveFunc: func(ctx context.Context, conn net.Conn) (context.Context, error) {
+			connCnt = transSvr.connCount.Value()
+			return nil, expectedErr
+		},
+		Opt: transSvr.opt,
+	}
+	err := transSvr.handleConn(mockConn)
+	test.Assert(t, connCnt == 1)
+	test.Assert(t, err == expectedErr)
+	test.Assert(t, isClosed)
+	test.Assert(t, transSvr.connCount.Value() == 0)
+	isClosed = false
+
+	// Peek error
+	transSvr.transHdlr = &mocks.MockSvrTransHandler{
+		OnActiveFunc: transSvr.transHdlr.OnActive,
+		Opt:          transSvr.opt,
+	}
+	expectedErr = io.EOF
+	mockConn.ReadFunc = func(b []byte) (n int, err error) {
+		return 0, io.EOF
+	}
+	err = transSvr.handleConn(mockConn)
+	test.Assert(t, err == expectedErr)
+	test.Assert(t, isClosed)
+	isClosed = false
+	mockConn.ReadFunc = nil
+
+	// OnRead Error
+	expectedErr = fmt.Errorf("OnReadError")
+	transSvr.transHdlr = &mocks.MockSvrTransHandler{
+		OnActiveFunc: transSvr.transHdlr.OnActive,
+		OnReadFunc: func(ctx context.Context, conn net.Conn) error {
+			return expectedErr
+		},
+		Opt: transSvr.opt,
+	}
+	err = transSvr.handleConn(mockConn)
+	test.Assert(t, err == expectedErr)
+	test.Assert(t, isClosed)
+	isClosed = false
+
+	// Panic, recovered
+	transSvr.transHdlr = &mocks.MockSvrTransHandler{
+		Opt: transSvr.opt,
+		OnReadFunc: func(ctx context.Context, conn net.Conn) error {
+			panic("on read")
+		},
+	}
+	mockConn.ReadFunc = func(b []byte) (n int, err error) {
+		panic("xxx panic read")
+	}
+	transSvr.handleConn(mockConn)
+	test.Assert(t, isClosed)
 }

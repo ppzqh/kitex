@@ -1,94 +1,67 @@
+/*
+ * Copyright 2025 CloudWeGo Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package gonet
 
 import (
-	"errors"
-	"io"
 	"net"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/cloudwego/gopkg/bufiox"
 )
 
-// bufioConn implements the net.Conn interface.
+// cliConn adds IsActive function which is used to check the connection before putting back to the conn pool.
+type cliConn struct {
+	net.Conn
+}
+
+func (c *cliConn) IsActive() bool {
+	return connIsActive(c.Conn) == nil
+}
+
+// svrConn implements the net.Conn interface.
 // read via bufiox.Reader and write directly to the connection.
-type bufioConn struct {
+type svrConn struct {
 	net.Conn
 	r      bufiox.Reader
 	closed atomic.Bool
 }
 
-func newBufioConn(c net.Conn) *bufioConn {
+func newSvrConn(c net.Conn) *svrConn {
 	r := readerPool.Get().(*bufiox.DefaultReader)
 	r.SetReader(c)
-	return &bufioConn{Conn: c, r: r}
+	return &svrConn{Conn: c, r: r}
 }
 
-func (bc *bufioConn) Read(b []byte) (int, error) {
+func (bc *svrConn) Read(b []byte) (int, error) {
 	return bc.r.ReadBinary(b)
 }
 
-func (bc *bufioConn) Close() error {
+func (bc *svrConn) Close() error {
 	if bc.closed.CompareAndSwap(false, true) {
 		bc.r.Release(nil)
 		return bc.Conn.Close()
 	}
 	return nil
 }
-func (bc *bufioConn) Reader() bufiox.Reader {
+
+func (bc *svrConn) Reader() bufiox.Reader {
 	return bc.r
 }
 
-func (bc *bufioConn) IsActive() bool {
-	if connIsActive(bc.Conn) != nil {
-		return false
-	}
-	return true
-}
-
-var (
-	errUnexpectedRead = errors.New("unexpected read from socket")
-	errNotSyscallConn = errors.New("conn is not a syscall.Conn")
-)
-
-// connIsActive checks if the connection is still alive using syscall.Read.
-// Notice: DO NOT call when there is concurrent read on this conn.
-// FIXME: windows cannot use this.
-func connIsActive(conn net.Conn) error {
-	var sysErr error
-
-	sysConn, ok := conn.(syscall.Conn)
-	if !ok {
-		return errNotSyscallConn
-	}
-	rawConn, err := sysConn.SyscallConn()
-	if err != nil {
-		return err
-	}
-
-	err = rawConn.Read(func(fd uintptr) bool {
-		var buf [1]byte
-		n, err := syscall.Read(int(fd), buf[:])
-		switch {
-		case n == 0 && err == nil:
-			sysErr = io.EOF
-		case n > 0:
-			sysErr = errUnexpectedRead
-		case errors.Is(err, syscall.EAGAIN) || err == syscall.EWOULDBLOCK:
-			sysErr = nil
-		default:
-			sysErr = err
-		}
-		return true
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if sysErr != nil {
-		return sysErr
-	}
-
-	return nil
+func (bc *svrConn) IsActive() bool {
+	return connIsActive(bc.Conn) == nil
 }

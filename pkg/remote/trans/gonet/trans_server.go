@@ -88,53 +88,58 @@ func (ts *transServer) BootstrapServer(ln net.Listener) error {
 			klog.Errorf("KITEX: BootstrapServer accept failed, err=%s", err.Error())
 			return err
 		}
-		ts.handleConn(conn)
+		go ts.handleConn(conn)
 	}
 }
 
-func (ts *transServer) handleConn(conn net.Conn) {
-	go func() {
-		var (
-			ctx    = context.Background()
-			err    error
-			bc     = newBufioConn(conn)
-			closed bool
-		)
-		defer func() {
-			transRecover(ctx, conn, "OnRead")
-			if !closed {
-				bc.Close()
-			}
-		}()
+func (ts *transServer) handleConn(conn net.Conn) error {
+	var (
+		ctx = context.Background()
+		err error
+	)
+	defer transRecover(ctx, conn, "handleConn")
 
-		ctx, err = ts.transHdlr.OnActive(ctx, bc)
+	ts.connCount.Inc()
+	bc := newSvrConn(conn)
+	defer func() {
 		if err != nil {
-			klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)
-			return
+			ts.onError(ctx, err, conn)
 		}
-		ctxValueOnRead := &trans.CtxValueOnRead{}
-		ctx = context.WithValue(ctx, trans.CtxKeyOnRead{}, ctxValueOnRead)
-		onReadOnlyOnceCheck := false
-		for {
-			// block to wait for next request
-			bc.r.Peek(1)
-			ts.refreshDeadline(rpcinfo.GetRPCInfo(ctx), bc)
-			err := ts.transHdlr.OnRead(ctx, bc)
-			if !onReadOnlyOnceCheck {
-				onReadOnlyOnceCheck = true
-				if ctxValueOnRead.GetOnlyOnce() {
-					break
-				}
-			}
-			if err != nil {
-				ts.onError(ctx, err, bc)
-				_ = bc.Close()
-				closed = true
-				return
-			}
-			bc.r.Release(nil)
-		}
+		bc.Close()
+		ts.connCount.Dec()
 	}()
+
+	ctx, err = ts.transHdlr.OnActive(ctx, bc)
+	if err != nil {
+		klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)
+		return err
+	}
+
+	ctxValueOnRead := &trans.CtxValueOnRead{}
+	ctx = context.WithValue(ctx, trans.CtxKeyOnRead{}, ctxValueOnRead)
+	onReadOnlyOnceCheck := false
+
+	for {
+		// block to wait for next request
+		_, err := bc.r.Peek(1)
+		if err != nil {
+			return err
+		}
+		ts.refreshDeadline(rpcinfo.GetRPCInfo(ctx), bc)
+		err = ts.transHdlr.OnRead(ctx, bc)
+		if !onReadOnlyOnceCheck {
+			onReadOnlyOnceCheck = true
+			if ctxValueOnRead.GetOnlyOnce() {
+				break
+			}
+		}
+		if err != nil {
+			return err
+		}
+		// FIXME: DefaultReader Release only free the buffer. looks like it can be reused.
+		bc.r.Release(nil)
+	}
+	return nil
 }
 
 // Shutdown implements the remote.TransServer interface.

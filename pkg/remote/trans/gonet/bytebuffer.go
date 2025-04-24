@@ -73,14 +73,12 @@ type bufferReadWriter struct {
 // NewBufferReader creates a new remote.ByteBuffer using the given netpoll.ZeroCopyReader.
 func NewBufferReader(ir io.Reader) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
-	if bc, ok := ir.(*bufioConn); ok {
+	if bc, ok := ir.(*svrConn); ok {
 		rw.reader = bc.Reader()
-		rw.ioReader = bc
 	} else {
 		rw.reader = getReader(ir)
-		rw.ioReader = ir
 	}
-
+	rw.ioReader = ir
 	rw.status = remote.BitReadable
 	rw.readSize = 0
 	return rw
@@ -98,13 +96,12 @@ func NewBufferWriter(iw io.Writer) remote.ByteBuffer {
 // NewBufferReadWriter creates a new remote.ByteBuffer using the given netpoll.ZeroCopyReadWriter.
 func NewBufferReadWriter(irw io.ReadWriter) remote.ByteBuffer {
 	rw := rwPool.Get().(*bufferReadWriter)
-	if bc, ok := irw.(*bufioConn); ok {
+	if bc, ok := irw.(*svrConn); ok {
 		rw.reader = bc.Reader()
-		rw.ioReader = bc
 	} else {
 		rw.reader = getReader(irw)
-		rw.ioReader = irw
 	}
+	rw.ioReader = irw
 	rw.writer = getWriter(irw)
 	rw.ioWriter = irw
 	rw.status = remote.BitWritable | remote.BitReadable
@@ -226,7 +223,7 @@ func (rw *bufferReadWriter) Write(p []byte) (n int, err error) {
 
 func (rw *bufferReadWriter) Release(e error) (err error) {
 	if rw.reader != nil {
-		if _, ok := rw.ioReader.(*bufioConn); !ok {
+		if _, ok := rw.ioReader.(*svrConn); !ok {
 			err = rw.reader.Release(e)
 			recycleReader(rw.reader.(*bufiox.DefaultReader))
 		}

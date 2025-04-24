@@ -24,11 +24,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/kitex/internal/mocks"
-
 	"github.com/golang/mock/gomock"
 
 	"github.com/cloudwego/gopkg/bufiox"
+
+	"github.com/cloudwego/kitex/internal/mocks"
 	mockBufiox "github.com/cloudwego/kitex/internal/mocks/bufiox"
 	mocksremote "github.com/cloudwego/kitex/internal/mocks/remote"
 	"github.com/cloudwego/kitex/internal/test"

@@ -132,8 +132,7 @@ func testReadFailed(t *testing.T, buf remote.ByteBuffer) {
 	_, err = buf.Next(msgLen - 1)
 	test.Assert(t, err != nil)
 
-	//n = buf.ReadableLen()
-	//test.Assert(t, n == -1)
+	test.Panic(t, func() { buf.ReadableLen() })
 
 	n = buf.ReadLen()
 	test.Assert(t, n == 0)

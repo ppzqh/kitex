@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 /*
  * Copyright 2022 CloudWeGo Authors
  *
@@ -17,28 +20,10 @@
 package gonet
 
 import (
-	"context"
 	"net"
-	"time"
-
-	"github.com/cloudwego/kitex/pkg/remote"
 )
 
-// NewDialer returns the default go net dialer.
-func NewDialer() remote.Dialer {
-	return &dialer{}
-}
-
-type dialer struct {
-	net.Dialer
-}
-
-func (d *dialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	conn, err := d.DialContext(ctx, network, address)
-	if err != nil {
-		return nil, err
-	}
-	return &cliConn{conn}, nil
+// FIXME: windows not supported
+func connIsActive(conn net.Conn) error {
+	return nil
 }
