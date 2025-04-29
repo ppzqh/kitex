@@ -292,6 +292,7 @@ func (o *Options) initRemoteOpt() {
 		}
 		o.RemoteOpt.TTHeaderStreamingProvider = ttstream.NewClientProvider(o.TTHeaderStreamingOptions.TransportOptions...)
 	}
+	//FIXME: how to set longpool proactiveCheck?
 	if o.RemoteOpt.ConnPool == nil {
 		if o.PoolCfg != nil {
 			if *o.PoolCfg == zero {

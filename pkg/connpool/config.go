@@ -24,6 +24,7 @@ type IdleConfig struct {
 	MaxIdlePerAddress int
 	MaxIdleGlobal     int
 	MaxIdleTimeout    time.Duration
+	ProactiveCheck    bool
 }
 
 const (

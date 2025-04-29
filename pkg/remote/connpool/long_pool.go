@@ -25,6 +25,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
+
+	"github.com/cloudwego/kitex/pkg/klog"
+
 	"github.com/cloudwego/kitex/pkg/connpool"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/utils"
@@ -40,7 +44,8 @@ var (
 )
 
 const (
-	configDumpKey = "idle_config"
+	proactiveConnCheckInterval = 3 * time.Second
+	configDumpKey              = "idle_config"
 )
 
 func getSharedTicker(p *LongPool, refreshInterval time.Duration) *utils.SharedTicker {
@@ -73,6 +78,7 @@ type longConn struct {
 	net.Conn
 	sync.RWMutex
 	deadline time.Time
+	pooledAt time.Time
 	address  string
 }
 
@@ -105,12 +111,21 @@ type PoolDump struct {
 	ConnsDeadline []time.Time `json:"conns_deadline"`
 }
 
-func newPool(minIdle, maxIdle int, maxIdleTimeout time.Duration) *pool {
+func newPool(config connpool.IdleConfig) *pool {
 	p := &pool{
-		idleList:       make([]*longConn, 0, maxIdle),
-		minIdle:        minIdle,
-		maxIdle:        maxIdle,
-		maxIdleTimeout: maxIdleTimeout,
+		idleList:       make([]*longConn, 0, config.MaxIdlePerAddress),
+		minIdle:        config.MinIdlePerAddress,
+		maxIdle:        config.MaxIdlePerAddress,
+		maxIdleTimeout: config.MaxIdleTimeout,
+		proactiveCheck: config.ProactiveCheck,
+	}
+
+	if p.proactiveCheck {
+		p.connCheckInterval = proactiveConnCheckInterval
+		if p.maxIdleTimeout < p.connCheckInterval {
+			p.connCheckInterval = p.maxIdleTimeout
+		}
+		p.connCheckFunc = internalRemote.ConnectionStateCheck
 	}
 	return p
 }
@@ -123,6 +138,11 @@ type pool struct {
 	minIdle        int
 	maxIdle        int           // currIdle <= maxIdle.
 	maxIdleTimeout time.Duration // the idle connection will be cleaned if the idle time exceeds maxIdleTimeout.
+
+	// only for go net connection now.
+	proactiveCheck    bool
+	connCheckInterval time.Duration
+	connCheckFunc     func(conn ...net.Conn) error
 }
 
 // Get gets the first active connection from the idleList. Return the number of connections decreased during the Get.
@@ -158,6 +178,7 @@ func (p *pool) Put(o *longConn) bool {
 	var recycled bool
 	if len(p.idleList) < p.maxIdle {
 		o.deadline = time.Now().Add(p.maxIdleTimeout)
+		o.pooledAt = time.Now()
 		p.idleList = append(p.idleList, o)
 		recycled = true
 	}
@@ -169,6 +190,15 @@ func (p *pool) Put(o *longConn) bool {
 // Evict returns how many connections has been evicted.
 func (p *pool) Evict() (evicted int) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.proactiveCheck {
+		// connection state check, this will set the state to the closed connections
+		if err := p.checkConnState(); err != nil {
+			klog.Errorf("KITEX: connpool health check failed: %v", err)
+		}
+	}
+
 	nonIdle := len(p.idleList) - p.minIdle
 	// clear non idle connections
 	for ; evicted < nonIdle; evicted++ {
@@ -182,8 +212,22 @@ func (p *pool) Evict() (evicted int) {
 		p.idleList[evicted] = nil
 	}
 	p.idleList = p.idleList[evicted:]
-	p.mu.Unlock()
 	return evicted
+}
+
+// checkConnState checks and sets the state of connections that have been idle for more than connCheckInterval.
+func (p *pool) checkConnState() error {
+	if p.connCheckFunc != nil {
+		var toCheck []net.Conn
+		for _, conn := range p.idleList {
+			if time.Now().After(conn.pooledAt.Add(p.connCheckInterval)) {
+				break
+			}
+			toCheck = append(toCheck, conn.RawConn())
+		}
+		return p.connCheckFunc(toCheck...)
+	}
+	return nil
 }
 
 // Len returns the length of the pool.
@@ -226,16 +270,14 @@ func (p *pool) Dump() PoolDump {
 func newPeer(
 	serviceName string,
 	addr net.Addr,
-	minIdle int,
-	maxIdle int,
-	maxIdleTimeout time.Duration,
+	idleCfg connpool.IdleConfig,
 	globalIdle *utils.MaxCounter,
 ) *peer {
 	return &peer{
 		serviceName: serviceName,
 		addr:        addr,
 		globalIdle:  globalIdle,
-		pool:        newPool(minIdle, maxIdle, maxIdleTimeout),
+		pool:        newPool(idleCfg),
 	}
 }
 
@@ -308,15 +350,19 @@ func NewLongPool(serviceName string, idlConfig connpool.IdleConfig) *LongPool {
 			return newPeer(
 				serviceName,
 				addr,
-				idlConfig.MinIdlePerAddress,
-				idlConfig.MaxIdlePerAddress,
-				idlConfig.MaxIdleTimeout,
+				idlConfig,
 				limit)
 		},
 		idleConfig: idlConfig,
 	}
+
+	evictInterval := idlConfig.MaxIdleTimeout
+	if idlConfig.ProactiveCheck && evictInterval > proactiveConnCheckInterval {
+		evictInterval = proactiveConnCheckInterval
+	}
+
 	// add this long pool into the sharedTicker
-	lp.sharedTicker = getSharedTicker(lp, idlConfig.MaxIdleTimeout)
+	lp.sharedTicker = getSharedTicker(lp, evictInterval)
 	return lp
 }
 

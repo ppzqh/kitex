@@ -55,7 +55,7 @@ func TestPoolReuse(t *testing.T) {
 		maxIdleTimeout = time.Millisecond
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 	count := make(map[*longConn]bool)
 
 	conn := newLongConnForTest(ctrl, mockAddr0)
@@ -82,7 +82,7 @@ func TestPoolGetInactiveConn(t *testing.T) {
 		maxIdleTimeout = time.Millisecond
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 
 	// inactive conn
 	var closed bool
@@ -119,7 +119,7 @@ func TestPoolGetWithInactiveConn(t *testing.T) {
 		inactiveNum    = 5
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 	// put active conn
 	activeConn := newLongConnForTest(ctrl, mockAddr0)
 	recycled := p.Put(activeConn)
@@ -165,7 +165,7 @@ func TestPoolMaxIdle(t *testing.T) {
 		maxIdleTimeout = time.Millisecond
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 	for i := 0; i < maxIdle+1; i++ {
 		recycled := p.Put(newLongConnForTest(ctrl, mockAddr0))
 		if i < maxIdle {
@@ -187,7 +187,7 @@ func TestPoolMinIdle(t *testing.T) {
 		maxIdleTimeout = time.Millisecond
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 	for i := 0; i < maxIdle+1; i++ {
 		p.Put(newLongConnForTest(ctrl, mockAddr0))
 	}
@@ -208,7 +208,7 @@ func TestPoolClose(t *testing.T) {
 		maxIdleTimeout = time.Millisecond
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 	for i := 0; i < maxIdle+1; i++ {
 		p.Put(newLongConnForTest(ctrl, mockAddr0))
 	}
@@ -229,7 +229,7 @@ func TestPoolDump(t *testing.T) {
 		maxIdleTimeout = time.Millisecond
 	)
 
-	p := newPool(minIdle, maxIdle, maxIdleTimeout)
+	p := newPool(connpool.IdleConfig{MinIdlePerAddress: minIdle, MaxIdlePerAddress: maxIdle, MaxIdleTimeout: maxIdleTimeout})
 	for i := 0; i < maxIdle+1; i++ {
 		p.Put(newLongConnForTest(ctrl, mockAddr0))
 	}

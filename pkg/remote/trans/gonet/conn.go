@@ -19,17 +19,31 @@ package gonet
 import (
 	"net"
 	"sync/atomic"
+	"syscall"
+
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
 
 	"github.com/cloudwego/gopkg/bufiox"
 )
 
-// cliConn adds IsActive function which is used to check the connection before putting back to the conn pool.
+var _ internalRemote.SetState = &cliConn{}
+
+// cliConn adds IsActive function which is used to check the connection state when getting from connpool.
 type cliConn struct {
 	net.Conn
+	closed atomic.Bool
 }
 
 func (c *cliConn) IsActive() bool {
-	return connIsActive(c.Conn) == nil
+	return c.closed.Load()
+}
+
+func (c *cliConn) SetState(closed bool) {
+	c.closed.Store(closed)
+}
+
+func (c *cliConn) SyscallConn() (syscall.RawConn, error) {
+	return c.Conn.(syscall.Conn).SyscallConn()
 }
 
 // svrConn implements the net.Conn interface.
@@ -60,8 +74,4 @@ func (bc *svrConn) Close() error {
 
 func (bc *svrConn) Reader() bufiox.Reader {
 	return bc.r
-}
-
-func (bc *svrConn) IsActive() bool {
-	return connIsActive(bc.Conn) == nil
 }
