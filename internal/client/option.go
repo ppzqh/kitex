@@ -21,6 +21,8 @@ import (
 	"context"
 	"time"
 
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
+
 	"github.com/cloudwego/localsession/backup"
 
 	"github.com/cloudwego/kitex/internal/configutil"
@@ -292,13 +294,18 @@ func (o *Options) initRemoteOpt() {
 		}
 		o.RemoteOpt.TTHeaderStreamingProvider = ttstream.NewClientProvider(o.TTHeaderStreamingOptions.TransportOptions...)
 	}
-	//FIXME: how to set longpool proactiveCheck?
+
+	_, setConnPoolProactiveCheck := o.RemoteOpt.Dialer.(internalRemote.IsGonet)
 	if o.RemoteOpt.ConnPool == nil {
 		if o.PoolCfg != nil {
 			if *o.PoolCfg == zero {
 				o.RemoteOpt.ConnPool = connpool.NewShortPool(o.Svr.ServiceName)
 			} else {
-				o.RemoteOpt.ConnPool = connpool.NewLongPool(o.Svr.ServiceName, *o.PoolCfg)
+				pcfg := *o.PoolCfg
+				if setConnPoolProactiveCheck {
+					pcfg.ProactiveCheck = true
+				}
+				o.RemoteOpt.ConnPool = connpool.NewLongPool(o.Svr.ServiceName, pcfg)
 			}
 		} else {
 			o.RemoteOpt.ConnPool = connpool.NewLongPool(
@@ -307,6 +314,7 @@ func (o *Options) initRemoteOpt() {
 					MaxIdlePerAddress: 10,
 					MaxIdleGlobal:     100,
 					MaxIdleTimeout:    time.Minute,
+					ProactiveCheck:    setConnPoolProactiveCheck,
 				},
 			)
 		}

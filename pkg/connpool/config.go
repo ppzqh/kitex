@@ -24,7 +24,7 @@ type IdleConfig struct {
 	MaxIdlePerAddress int
 	MaxIdleGlobal     int
 	MaxIdleTimeout    time.Duration
-	ProactiveCheck    bool
+	ProactiveCheck    bool // if true, the connection pool will check the aliveness of conn.
 }
 
 const (

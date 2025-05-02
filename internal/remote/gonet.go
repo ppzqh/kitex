@@ -20,3 +20,8 @@ package remote
 type SetState interface {
 	SetState(closed bool)
 }
+
+// IsGonet returns if the remote component is using gonet
+type IsGonet interface {
+	IsGonet() bool
+}

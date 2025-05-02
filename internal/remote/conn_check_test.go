@@ -73,5 +73,6 @@ func TestConnectionStateCheck(t *testing.T) {
 
 	// check, closed
 	err = ConnectionStateCheck(serverConnWithState)
+	test.Assert(t, err == nil, err)
 	test.Assert(t, serverConnWithState.closed.Load())
 }
