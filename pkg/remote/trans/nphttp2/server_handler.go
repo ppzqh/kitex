@@ -143,7 +143,7 @@ func (t *svrTransHandler) Read(ctx context.Context, conn net.Conn, msg remote.Me
 func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
 	if v := ctx.Value(trans.CtxKeyOnRead{}); v != nil {
 		value := v.(*trans.CtxValueOnRead)
-		value.SetOnlyOnce(true)
+		value.Execute()
 	}
 	svrTrans := ctx.Value(ctxKeySvrTransport).(*SvrTrans)
 	tr := svrTrans.tr

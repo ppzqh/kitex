@@ -30,29 +30,6 @@ import (
 
 var readMoreTimeout = 5 * time.Millisecond
 
-type (
-	CtxKeyOnRead   struct{}
-	CtxValueOnRead struct {
-		onlyOnce int32
-	}
-)
-
-func (v *CtxValueOnRead) SetOnlyOnce(b bool) {
-	if b {
-		atomic.StoreInt32(&v.onlyOnce, 1)
-	} else {
-		atomic.StoreInt32(&v.onlyOnce, 0)
-	}
-}
-
-func (v *CtxValueOnRead) GetOnlyOnce() bool {
-	if atomic.LoadInt32(&v.onlyOnce) == 1 {
-		return true
-	} else {
-		return false
-	}
-}
-
 // Extension is the interface that trans extensions need to implement, it will make the extension of trans more easily.
 // Normally if we want to extend transport layer we need to implement the trans interfaces which are defined in trans_handler.go.
 // In fact most code logic is similar in same mode, so the Extension interface is the the differentiated part that need to
@@ -97,4 +74,21 @@ func GetDefaultSvcInfo(svcMap map[string]*serviceinfo.ServiceInfo) *serviceinfo.
 		return svcInfo
 	}
 	return nil
+}
+
+// CtxKeyOnRead, CtxValueOnRead are used to record if the onRead has been executed for a connection.
+// Notice: only used for http2 handler.
+type (
+	CtxKeyOnRead   struct{}
+	CtxValueOnRead struct {
+		executed atomic.Bool
+	}
+)
+
+func (v *CtxValueOnRead) Execute() {
+	v.executed.Store(true)
+}
+
+func (v *CtxValueOnRead) IsExecuted() bool {
+	return v.executed.Load()
 }

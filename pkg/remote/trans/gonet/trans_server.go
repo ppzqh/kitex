@@ -129,7 +129,7 @@ func (ts *transServer) handleConn(conn net.Conn) error {
 		err = ts.transHdlr.OnRead(ctx, bc)
 		if !onReadOnlyOnceCheck {
 			onReadOnlyOnceCheck = true
-			if ctxValueOnRead.GetOnlyOnce() {
+			if ctxValueOnRead.IsExecuted() {
 				break
 			}
 		}

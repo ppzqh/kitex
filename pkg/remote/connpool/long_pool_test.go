@@ -22,11 +22,14 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"reflect"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
 
 	"github.com/cloudwego/kitex/pkg/connpool"
 
@@ -912,6 +915,29 @@ func TestLongConnPoolDump(t *testing.T) {
 
 	length := len(val.(PoolDump).ConnsDeadline)
 	test.Assert(t, length == 1)
+}
+
+func TestLongConnPoolProactiveCheck(t *testing.T) {
+	cfg := connpool.IdleConfig{ProactiveCheck: true, MaxIdleTimeout: proactiveConnCheckInterval * 2}
+	lp := NewLongPool(mockDestService, cfg)
+	test.Assert(t, lp.sharedTicker.Interval == proactiveConnCheckInterval)
+	lp.Close()
+	p := newPool(cfg)
+	test.Assert(t, p.proactiveCheck)
+	test.Assert(t, p.connCheckInterval == proactiveConnCheckInterval)
+	test.Assert(t, p.connCheckFunc != nil)
+	test.Assert(t, reflect.ValueOf(p.connCheckFunc).Pointer() == reflect.ValueOf(internalRemote.ConnectionStateCheck).Pointer())
+	// check conn state
+	err := p.connCheckFunc()
+	test.Assert(t, err == nil)
+
+	// adjust interval
+	cfg.MaxIdleTimeout = proactiveConnCheckInterval / 2
+	lp = NewLongPool(mockDestService, cfg)
+	test.Assert(t, lp.sharedTicker.Interval == cfg.MaxIdleTimeout)
+	lp.Close()
+	p = newPool(cfg)
+	test.Assert(t, p.connCheckInterval == cfg.MaxIdleTimeout)
 }
 
 func BenchmarkLongPoolGetOne(b *testing.B) {
