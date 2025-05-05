@@ -17,11 +17,8 @@
 package gonet
 
 import (
-	"context"
 	"net"
 	"time"
-
-	internalRemote "github.com/cloudwego/kitex/internal/remote"
 
 	"github.com/cloudwego/kitex/pkg/remote"
 )
@@ -31,22 +28,28 @@ func NewDialer() remote.Dialer {
 	return &dialer{}
 }
 
-var _ internalRemote.IsGonet = &dialer{}
+//var _ internalRemote.IsGonet = &dialer{}
 
 type dialer struct {
 	net.Dialer
 }
 
 func (d *dialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	conn, err := d.DialContext(ctx, network, address)
+	//ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	//defer cancel()
+	//conn, err := d.DialContext(ctx, network, address)
+	//if err != nil {
+	//	return nil, err
+	//}
+
+	// RDMA
+	conn, err := DialTCP(address)
 	if err != nil {
 		return nil, err
 	}
 	return &cliConn{Conn: conn}, nil
 }
 
-func (d *dialer) IsGonet() bool {
-	return true
-}
+//func (d *dialer) IsGonet() bool {
+//	return true
+//}

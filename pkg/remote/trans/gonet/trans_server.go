@@ -65,8 +65,18 @@ var _ remote.TransServer = &transServer{}
 // CreateListener implements the remote.TransServer interface.
 // The network must be "tcp", "tcp4", "tcp6" or "unix".
 func (ts *transServer) CreateListener(addr net.Addr) (ln net.Listener, err error) {
-	ln, err = ts.lncfg.Listen(context.Background(), addr.Network(), addr.String())
-	return ln, err
+	//ln, err = ts.lncfg.Listen(context.Background(), addr.Network(), addr.String())
+	//return ln, err
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr.String())
+	if err != nil {
+		return nil, err
+	}
+	ln, err = NewTCPListener(tcpAddr.IP.String(), tcpAddr.Port, 128)
+	if err != nil {
+		return nil, err
+	}
+	ts.ln = ln
+	return ln, nil
 }
 
 // BootstrapServer implements the remote.TransServer interface.
