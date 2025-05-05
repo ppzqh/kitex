@@ -113,6 +113,11 @@ func Connect(fd int, sa syscall.Sockaddr) error {
 	if err != nil {
 		return err
 	}
+	err = syscall.Connect(fd, sa)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("syscall connect ok\n")
 	if rc := C.rconnect(C.int(fd), (*C.struct_sockaddr)(unsafe.Pointer(ptr)), C.socklen_t(len)); rc < 0 {
 		return syscall.Errno(-rc)
 	}
