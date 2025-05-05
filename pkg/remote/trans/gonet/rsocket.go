@@ -7,6 +7,7 @@ package gonet
 */
 import "C"
 import (
+	"fmt"
 	"log"
 	"net"
 	"syscall"
@@ -107,6 +108,7 @@ func Accept(fd int) (int, syscall.Sockaddr, error) {
 
 // Connect connects the socket to a remote address
 func Connect(fd int, sa syscall.Sockaddr) error {
+	fmt.Printf("Connecting to: %+v\n", sa)
 	ptr, len, err := sockaddrToAny(sa)
 	if err != nil {
 		return err
@@ -314,21 +316,21 @@ func sockaddrToAny(sa syscall.Sockaddr) (*syscall.RawSockaddrAny, uint32, error)
 
 	switch sa := sa.(type) {
 	case *syscall.SockaddrInet4:
-		raw := syscall.RawSockaddrInet4{
+		raw := &syscall.RawSockaddrInet4{
 			Family: syscall.AF_INET,
 			Port:   uint16((sa.Port >> 8) | ((sa.Port & 0xff) << 8)), // network byte order
 		}
 		copy(raw.Addr[:], sa.Addr[:])
-		return (*syscall.RawSockaddrAny)(unsafe.Pointer(&raw)), syscall.SizeofSockaddrInet4, nil
+		return (*syscall.RawSockaddrAny)(unsafe.Pointer(raw)), syscall.SizeofSockaddrInet4, nil
 
 	case *syscall.SockaddrInet6:
-		raw := syscall.RawSockaddrInet6{
+		raw := &syscall.RawSockaddrInet6{
 			Family:   syscall.AF_INET6,
 			Port:     uint16((sa.Port >> 8) | ((sa.Port & 0xff) << 8)), // network byte order
 			Flowinfo: sa.ZoneId,
 		}
 		copy(raw.Addr[:], sa.Addr[:])
-		return (*syscall.RawSockaddrAny)(unsafe.Pointer(&raw)), syscall.SizeofSockaddrInet6, nil
+		return (*syscall.RawSockaddrAny)(unsafe.Pointer(raw)), syscall.SizeofSockaddrInet6, nil
 
 	default:
 		return nil, 0, syscall.EAFNOSUPPORT
