@@ -24,24 +24,19 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/codec"
 	"github.com/cloudwego/kitex/pkg/remote/trans/detection"
-	"github.com/cloudwego/kitex/pkg/remote/trans/netpoll"
+	"github.com/cloudwego/kitex/pkg/remote/trans/gonet"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc"
 	streamxstrans "github.com/cloudwego/kitex/pkg/remote/trans/streamx"
 	"github.com/cloudwego/kitex/pkg/remote/trans/streamx/provider"
-
 	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream"
 )
 
 func newServerRemoteOption() (*remote.ServerOption, provider.ServerProvider) {
 	ttstreamServerProvider := ttstream.NewServerProvider()
 	return &remote.ServerOption{
-		TransServerFactory: netpoll.NewTransServerFactory(),
-		SvrHandlerFactory: detection.NewSvrTransHandlerFactory(
-			netpoll.NewSvrTransHandlerFactory(),
-			nphttp2.NewSvrTransHandlerFactory(),
-			streamxstrans.NewSvrTransHandlerFactory(ttstreamServerProvider),
-		),
+		TransServerFactory:    gonet.NewTransServerFactory(),
+		SvrHandlerFactory:     detection.NewSvrTransHandlerFactory(gonet.NewSvrTransHandlerFactory(), nphttp2.NewSvrTransHandlerFactory(), streamxstrans.NewSvrTransHandlerFactory(ttstreamServerProvider)),
 		Codec:                 codec.NewDefaultCodec(),
 		Address:               defaultAddress,
 		ExitWaitTime:          defaultExitWaitTime,
@@ -50,3 +45,21 @@ func newServerRemoteOption() (*remote.ServerOption, provider.ServerProvider) {
 		GRPCCfg:               grpc.DefaultServerConfig(),
 	}, ttstreamServerProvider
 }
+
+//func newServerRemoteOption() (*remote.ServerOption, provider.ServerProvider) {
+//	ttstreamServerProvider := ttstream.NewServerProvider()
+//	return &remote.ServerOption{
+//		TransServerFactory: netpoll.NewTransServerFactory(),
+//		SvrHandlerFactory: detection.NewSvrTransHandlerFactory(
+//			netpoll.NewSvrTransHandlerFactory(),
+//			nphttp2.NewSvrTransHandlerFactory(),
+//			streamxstrans.NewSvrTransHandlerFactory(ttstreamServerProvider),
+//		),
+//		Codec:                 codec.NewDefaultCodec(),
+//		Address:               defaultAddress,
+//		ExitWaitTime:          defaultExitWaitTime,
+//		MaxConnectionIdleTime: defaultConnectionIdleTime,
+//		AcceptFailedDelayTime: defaultAcceptFailedDelayTime,
+//		GRPCCfg:               grpc.DefaultServerConfig(),
+//	}, ttstreamServerProvider
+//}
