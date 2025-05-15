@@ -18,6 +18,7 @@ package gonet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -76,8 +77,7 @@ func TestMain(m *testing.M) {
 		TracerCtl:     &rpcinfo.TraceController{},
 	}
 	svrTransHdlr, _ = newSvrTransHandler(svrOpt)
-	transSvr = NewTransServerFactory().NewTransServer(svrOpt, svrTransHdlr).(*transServer)
-
+	transSvr = NewTransServerFactory().NewTransServer(svrOpt, remote.NewTransPipeline(svrTransHdlr)).(*transServer)
 	os.Exit(m.Run())
 }
 
@@ -105,31 +105,66 @@ func TestCreateListener(t *testing.T) {
 	ln.Close()
 }
 
-// TestBootStrap test trans_server BootstrapServer success
-func TestBootStrap(t *testing.T) {
+func TestBootStrapAndShutdown(t *testing.T) {
 	// tcp init
 	addrStr := "127.0.0.1:9093"
 	addr = utils.NewNetAddr("tcp", addrStr)
-
-	// test
 	ln, err := transSvr.CreateListener(addr)
 	test.Assert(t, err == nil, err)
 	test.Assert(t, ln.Addr().String() == addrStr)
+	exitOnRead := make(chan struct{})
+	transSvr.transHdlr = &mocks.MockSvrTransHandler{
+		OnActiveFunc: func(ctx context.Context, conn net.Conn) (context.Context, error) {
+			ri := svrOpt.InitOrResetRPCInfoFunc(nil, conn.RemoteAddr())
+			return rpcinfo.NewCtxWithRPCInfo(ctx, ri), nil
+		},
+		OnReadFunc: func(ctx context.Context, conn net.Conn) error {
+			<-exitOnRead
+			return errors.New("mock read error")
+		},
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		err = transSvr.BootstrapServer(ln)
-		test.Assert(t, err == nil, err)
+		be := transSvr.BootstrapServer(ln)
+		test.Assert(t, be == nil, be)
 		wg.Done()
 	}()
-	time.Sleep(10 * time.Millisecond)
+	// wait server starts
+	time.Sleep(100 * time.Millisecond)
+	test.Assert(t, transSvr.connCount.Value() == 0)
 
-	transSvr.Shutdown()
+	// new conn
+	c, err := net.Dial("tcp", addrStr)
+	test.Assert(t, err == nil, err)
+	c.Write([]byte("test")) // trigger onRead
+	time.Sleep(10 * time.Millisecond)
+	test.Assert(t, transSvr.connCount.Value() == 1)
+
+	// shutdown
+	// case: ctx done, since connections still in processing
+	transSvr.Lock()
+	transSvr.opt.ExitWaitTime = 10 * time.Millisecond
+	transSvr.Unlock()
+	err = transSvr.Shutdown() // context
+	test.Assert(t, errors.Is(err, context.DeadlineExceeded), err)
+	// BootstrapServer will return if listener closed
 	wg.Wait()
+	test.Assert(t, transSvr.connCount.Value() == 1)
+
+	// case: normal
+	close(exitOnRead)
+	transSvr.Lock()
+	transSvr.opt.ExitWaitTime = time.Second
+	transSvr.Unlock()
+	time.Sleep(10 * time.Millisecond)
+	err = transSvr.Shutdown()
+	test.Assert(t, err == nil, err)
+	test.Assert(t, transSvr.connCount.Value() == 0)
 }
 
-func TestHandleConn(t *testing.T) {
+func TestServeConn(t *testing.T) {
 	isClosed := false
 	mockConn := &MockGonetConn{
 		Conn: mocks.Conn{
@@ -152,7 +187,7 @@ func TestHandleConn(t *testing.T) {
 		},
 		Opt: transSvr.opt,
 	}
-	err := transSvr.handleConn(mockConn)
+	err := transSvr.serveConn(context.Background(), mockConn)
 	test.Assert(t, connCnt == 1)
 	test.Assert(t, err == expectedErr)
 	test.Assert(t, isClosed)
@@ -168,7 +203,7 @@ func TestHandleConn(t *testing.T) {
 	mockConn.ReadFunc = func(b []byte) (n int, err error) {
 		return 0, io.EOF
 	}
-	err = transSvr.handleConn(mockConn)
+	err = transSvr.serveConn(context.Background(), mockConn)
 	test.Assert(t, err == expectedErr)
 	test.Assert(t, isClosed)
 	isClosed = false
@@ -183,7 +218,7 @@ func TestHandleConn(t *testing.T) {
 		},
 		Opt: transSvr.opt,
 	}
-	err = transSvr.handleConn(mockConn)
+	err = transSvr.serveConn(context.Background(), mockConn)
 	test.Assert(t, err == expectedErr)
 	test.Assert(t, isClosed)
 	isClosed = false
@@ -198,6 +233,6 @@ func TestHandleConn(t *testing.T) {
 	mockConn.ReadFunc = func(b []byte) (n int, err error) {
 		panic("xxx panic read")
 	}
-	transSvr.handleConn(mockConn)
+	transSvr.serveConn(context.Background(), mockConn)
 	test.Assert(t, isClosed)
 }

@@ -24,8 +24,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/cloudwego/netpoll"
-
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/trans"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -78,8 +76,7 @@ func (e *gonetConnExtension) IsRemoteClosedErr(err error) bool {
 	}
 	// strings.Contains(err.Error(), "closed network connection") change to errors.Is(err, net.ErrClosed)
 	// when support go version >= 1.16
-	return errors.Is(err, netpoll.ErrConnClosed) ||
-		errors.Is(err, io.EOF) ||
+	return errors.Is(err, io.EOF) ||
 		errors.Is(err, syscall.EPIPE) ||
 		strings.Contains(err.Error(), "closed network connection")
 }

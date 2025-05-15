@@ -34,6 +34,8 @@ import (
 	"github.com/cloudwego/kitex/pkg/utils"
 )
 
+const defaultShutdownTicker = 100 * time.Millisecond
+
 // NewTransServerFactory creates a default go net transport server factory.
 func NewTransServerFactory() remote.TransServerFactory {
 	return &gonetTransServerFactory{}
@@ -79,7 +81,7 @@ func (ts *transServer) BootstrapServer(ln net.Listener) error {
 	ts.Unlock()
 
 	for {
-		conn, err := ts.ln.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			if ts.shutdown.Load() {
 				// shutdown
@@ -88,25 +90,21 @@ func (ts *transServer) BootstrapServer(ln net.Listener) error {
 			klog.Errorf("KITEX: BootstrapServer accept failed, err=%s", err.Error())
 			return err
 		}
-		go ts.handleConn(conn)
+		go ts.serveConn(context.Background(), conn)
 	}
 }
 
-func (ts *transServer) handleConn(conn net.Conn) error {
-	var (
-		ctx = context.Background()
-		err error
-	)
-	defer transRecover(ctx, conn, "handleConn")
+func (ts *transServer) serveConn(ctx context.Context, conn net.Conn) (err error) {
+	defer transRecover(ctx, conn, "serveConn")
 
 	ts.connCount.Inc()
 	bc := newSvrConn(conn)
 	defer func() {
 		if err != nil {
-			ts.onError(ctx, err, conn)
+			ts.onError(ctx, err, bc)
 		}
-		bc.Close()
 		ts.connCount.Dec()
+		bc.Close()
 	}()
 
 	ctx, err = ts.transHdlr.OnActive(ctx, bc)
@@ -121,7 +119,7 @@ func (ts *transServer) handleConn(conn net.Conn) error {
 
 	for {
 		// block to wait for next request
-		_, err := bc.r.Peek(1)
+		_, err = bc.r.Peek(1)
 		if err != nil {
 			return err
 		}
@@ -160,7 +158,20 @@ func (ts *transServer) Shutdown() (err error) {
 			_ = g.GracefulShutdown(ctx)
 		}
 	}
-	return
+
+	shutdownTicker := time.NewTicker(defaultShutdownTicker)
+	defer shutdownTicker.Stop()
+	for {
+		select {
+		case <-shutdownTicker.C:
+			// check active conn count
+			if ts.connCount.Value() == 0 {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // ConnCount implements the remote.TransServer interface.

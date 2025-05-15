@@ -45,10 +45,11 @@ type MockSvrTransHandler struct {
 	Opt       *remote.ServerOption
 	transPipe *remote.TransPipeline
 
-	OnActiveFunc func(ctx context.Context, conn net.Conn) (context.Context, error)
-	OnReadFunc   func(ctx context.Context, conn net.Conn) error
-	WriteFunc    func(ctx context.Context, conn net.Conn, send remote.Message) (nctx context.Context, err error)
-	ReadFunc     func(ctx context.Context, conn net.Conn, msg remote.Message) (nctx context.Context, err error)
+	OnActiveFunc         func(ctx context.Context, conn net.Conn) (context.Context, error)
+	OnReadFunc           func(ctx context.Context, conn net.Conn) error
+	WriteFunc            func(ctx context.Context, conn net.Conn, send remote.Message) (nctx context.Context, err error)
+	ReadFunc             func(ctx context.Context, conn net.Conn, msg remote.Message) (nctx context.Context, err error)
+	GracefulShutdownFunc func(ctx context.Context) (err error)
 }
 
 // OnRead implements the remote.TransHandler interface.
@@ -101,6 +102,13 @@ func (t *MockSvrTransHandler) OnError(ctx context.Context, err error, conn net.C
 	} else {
 		klog.CtxErrorf(ctx, "KITEX: send request error, remote=%s, error=%s", conn.RemoteAddr(), err.Error())
 	}
+}
+
+func (t *MockSvrTransHandler) GracefulShutdown(ctx context.Context) (err error) {
+	if t.GracefulShutdownFunc != nil {
+		return t.GracefulShutdownFunc(ctx)
+	}
+	return nil
 }
 
 // SetPipeline implements the remote.TransHandler interface.
