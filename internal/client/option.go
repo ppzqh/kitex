@@ -301,11 +301,11 @@ func (o *Options) initRemoteOpt() {
 			if *o.PoolCfg == zero {
 				o.RemoteOpt.ConnPool = connpool.NewShortPool(o.Svr.ServiceName)
 			} else {
-				pcfg := *o.PoolCfg
+				pcfg := o.PoolCfg
 				if setConnPoolProactiveCheck {
 					pcfg.ProactiveCheck = true
 				}
-				o.RemoteOpt.ConnPool = connpool.NewLongPool(o.Svr.ServiceName, pcfg)
+				o.RemoteOpt.ConnPool = connpool.NewLongPool(o.Svr.ServiceName, *pcfg)
 			}
 		} else {
 			o.RemoteOpt.ConnPool = connpool.NewLongPool(

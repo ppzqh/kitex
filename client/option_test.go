@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/kitex/pkg/remote/trans/gonet"
+
 	"github.com/golang/mock/gomock"
 
 	"github.com/cloudwego/kitex/internal/client"
@@ -762,6 +764,11 @@ func TestTailOption(t *testing.T) {
 	opt = TailOption(opt)
 	opts := client.NewOptions([]client.Option{opt, WithConnPool(mock_remote.NewMockLongConnPool(ctrl))})
 	test.Assert(t, opts.RemoteOpt.Dialer != nil)
+}
+
+func TestGonetOption(t *testing.T) {
+	opt := client.NewOptions([]Option{WithDialer(gonet.NewDialer()), WithLongConnection(connpool.IdleConfig{MaxIdlePerAddress: 10})})
+	test.Assert(t, opt.PoolCfg.ProactiveCheck)
 }
 
 func checkOneOptionDebugInfo(t *testing.T, opt Option, expectStr string) error {

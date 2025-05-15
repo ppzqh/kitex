@@ -41,7 +41,7 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize, maxHeaderListSize
 		r = bc.Reader()
 	} else {
 		if npConn, ok := conn.(interface{ Reader() netpoll.Reader }); ok {
-			r = &np2BufioxReader{Reader: npConn.Reader()}
+			r = &netpollBufioxReader{Reader: npConn.Reader()}
 		} else {
 			r = bufiox.NewDefaultReader(conn)
 		}
@@ -108,31 +108,46 @@ func (w *bufWriter) Flush() error {
 	return w.err
 }
 
-var _ bufiox.Reader = &np2BufioxReader{}
+var _ bufiox.Reader = &netpollBufioxReader{}
 
-type np2BufioxReader struct {
+// netpollBufioxReader implements bufiox.Reader with netpoll.Reader
+type netpollBufioxReader struct {
 	netpoll.Reader
 	readLen int
 }
 
-func (r *np2BufioxReader) ReadLen() (n int) {
-	// FIXME
-	return r.readLen
+func (r *netpollBufioxReader) Next(n int) (p []byte, err error) {
+	p, err = r.Reader.Next(n)
+	if err != nil {
+		return nil, err
+	}
+	r.readLen += len(p)
+	return p, nil
 }
 
-func (r *np2BufioxReader) Release(e error) (err error) {
-	return r.Reader.Release()
-}
-
-func (r *np2BufioxReader) Next(n int) (p []byte, err error) {
-	return r.Reader.Next(n)
-}
-
-func (r *np2BufioxReader) ReadBinary(bs []byte) (n int, err error) {
+func (r *netpollBufioxReader) ReadBinary(bs []byte) (n int, err error) {
 	p, err := r.Next(len(bs))
 	if err != nil {
 		return 0, err
 	}
 	n = copy(bs, p)
 	return n, nil
+}
+
+func (r *netpollBufioxReader) Skip(n int) (err error) {
+	err = r.Reader.Skip(n)
+	if err != nil {
+		return err
+	}
+	r.readLen += n
+	return nil
+}
+
+func (r *netpollBufioxReader) ReadLen() (n int) {
+	return r.readLen
+}
+
+func (r *netpollBufioxReader) Release(e error) (err error) {
+	r.readLen = 0
+	return r.Reader.Release()
 }

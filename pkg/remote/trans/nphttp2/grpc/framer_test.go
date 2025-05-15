@@ -17,11 +17,14 @@
 package grpc
 
 import (
+	"io"
 	"net"
 	"testing"
 
 	"github.com/cloudwego/gopkg/bufiox"
+	"github.com/golang/mock/gomock"
 
+	mocksnetpoll "github.com/cloudwego/kitex/internal/mocks/netpoll"
 	"github.com/cloudwego/kitex/internal/test"
 )
 
@@ -51,6 +54,61 @@ func TestNewFramer(t *testing.T) {
 	// netpoll conn
 	conn = &mockNetpollConn{}
 	fr = newFramer(conn, 0, 0, 0)
-	_, ok = fr.reader.(*np2BufioxReader)
+	_, ok = fr.reader.(*netpollBufioxReader)
 	test.Assert(t, ok)
+}
+
+func TestNetpollBufioxReader(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	var (
+		validReadLength = 5
+		eofReadLength   = 8
+		validSkipLength = 5
+		eofSkipLength   = 3
+		expectedString  = "Hello"
+	)
+
+	mockReader := mocksnetpoll.NewMockReader(ctrl)
+	mockReader.EXPECT().Next(validReadLength).Return([]byte(expectedString), nil).Times(2) // readBinary also calls reader.Next
+	mockReader.EXPECT().Next(eofReadLength).Return(nil, io.EOF).Times(1)
+	mockReader.EXPECT().Skip(validSkipLength).Return(nil).Times(1)
+	mockReader.EXPECT().Skip(eofSkipLength).Return(io.EOF).Times(1)
+	mockReader.EXPECT().Release().Return(nil).Times(1)
+	reader := &netpollBufioxReader{
+		Reader: mockReader,
+	}
+	currReadLen := 0
+
+	// Next
+	p, err := reader.Next(validReadLength)
+	test.Assert(t, err == nil)
+	test.Assert(t, "Hello" == string(p))
+	test.Assert(t, validReadLength == reader.ReadLen())
+	currReadLen = validReadLength
+	p, err = reader.Next(8)
+	test.Assert(t, io.EOF == err)
+	test.Assert(t, p == nil)
+
+	// ReadBinary
+	buf := make([]byte, validReadLength)
+	n, err := reader.ReadBinary(buf)
+	test.Assert(t, err == nil)
+	test.Assert(t, validReadLength == n)
+	test.Assert(t, "Hello" == string(buf))
+	test.Assert(t, currReadLen+validReadLength == reader.ReadLen())
+	currReadLen = reader.ReadLen()
+
+	// Skip
+	err = reader.Skip(validReadLength)
+	test.Assert(t, err == nil)
+	test.Assert(t, currReadLen+validReadLength == reader.ReadLen())
+	err = reader.Skip(3)
+	test.Assert(t, io.EOF == err)
+
+	// Release
+	err = reader.Release(nil)
+	test.Assert(t, err == nil)
+	test.Assert(t, reader.ReadLen() == 0)
 }
