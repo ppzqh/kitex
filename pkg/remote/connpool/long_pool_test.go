@@ -29,15 +29,13 @@ import (
 	"testing"
 	"time"
 
-	internalRemote "github.com/cloudwego/kitex/internal/remote"
-
-	"github.com/cloudwego/kitex/pkg/connpool"
-
 	"github.com/golang/mock/gomock"
 
 	mocksnetpoll "github.com/cloudwego/kitex/internal/mocks/netpoll"
 	mocksremote "github.com/cloudwego/kitex/internal/mocks/remote"
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
 	"github.com/cloudwego/kitex/internal/test"
+	"github.com/cloudwego/kitex/pkg/connpool"
 	dialer "github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/utils"
 )

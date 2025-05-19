@@ -26,10 +26,8 @@ import (
 	"time"
 
 	internalRemote "github.com/cloudwego/kitex/internal/remote"
-
-	"github.com/cloudwego/kitex/pkg/klog"
-
 	"github.com/cloudwego/kitex/pkg/connpool"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/utils"
 	"github.com/cloudwego/kitex/pkg/warmup"

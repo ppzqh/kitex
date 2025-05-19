@@ -21,9 +21,9 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	internalRemote "github.com/cloudwego/kitex/internal/remote"
-
 	"github.com/cloudwego/gopkg/bufiox"
+
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
 )
 
 var _ internalRemote.SetState = &cliConn{}

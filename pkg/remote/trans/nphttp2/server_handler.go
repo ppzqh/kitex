@@ -30,9 +30,6 @@ import (
 	"time"
 
 	"github.com/cloudwego/gopkg/bufiox"
-
-	"github.com/cloudwego/kitex/pkg/remote/trans"
-
 	"github.com/cloudwego/netpoll"
 
 	"github.com/cloudwego/kitex/pkg/endpoint"
@@ -42,6 +39,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/codec"
 	"github.com/cloudwego/kitex/pkg/remote/codec/grpc"
+	"github.com/cloudwego/kitex/pkg/remote/trans"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/codes"
 	grpcTransport "github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/status"
@@ -141,6 +139,7 @@ func (t *svrTransHandler) Read(ctx context.Context, conn net.Conn, msg remote.Me
 
 // 只 return write err
 func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
+	// set the CtxValueOnRead to make sure that each conn only executes OnRead once.
 	if v := ctx.Value(trans.CtxKeyOnRead{}); v != nil {
 		value := v.(*trans.CtxValueOnRead)
 		value.Execute()

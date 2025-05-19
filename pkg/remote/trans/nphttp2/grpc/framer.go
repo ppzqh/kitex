@@ -37,6 +37,10 @@ type framer struct {
 
 func newFramer(conn net.Conn, writeBufferSize, readBufferSize, maxHeaderListSize uint32) *framer {
 	var r bufiox.Reader
+	// Initialize a bufiox.Reader based on the connection:
+	// 1. If the connection's reader is a `bufiox.Reader`, use it directly.
+	// 2. If the connection's reader is a `netpoll.Reader`, wrap it in a `netpollBufioxReader`.
+	// 3. Otherwise, create a `bufiox.DefaultReader` with the connection.
 	if bc, ok := conn.(interface{ Reader() bufiox.Reader }); ok {
 		r = bc.Reader()
 	} else {
