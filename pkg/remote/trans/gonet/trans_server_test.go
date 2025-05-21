@@ -27,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
+
 	"github.com/cloudwego/kitex/internal/mocks"
 	mocksremote "github.com/cloudwego/kitex/internal/mocks/remote"
 	"github.com/cloudwego/kitex/internal/test"
@@ -45,10 +47,14 @@ var (
 	svrOpt       *remote.ServerOption
 )
 
-// MockGonetConn 模拟 gonet 连接
 type MockGonetConn struct {
 	mocks.Conn
 	SetReadTimeoutFunc func(timeout time.Duration) error
+}
+
+func (m *MockGonetConn) Do() bool {
+	// TODO implement me
+	panic("implement me")
 }
 
 func TestMain(m *testing.M) {
@@ -196,7 +202,7 @@ func TestServeConn(t *testing.T) {
 
 	// Peek error
 	transSvr.transHdlr = &mocks.MockSvrTransHandler{
-		OnActiveFunc: transSvr.transHdlr.OnActive,
+		OnActiveFunc: svrTransHdlr.OnActive,
 		Opt:          transSvr.opt,
 	}
 	expectedErr = io.EOF
@@ -212,7 +218,7 @@ func TestServeConn(t *testing.T) {
 	// OnRead Error
 	expectedErr = fmt.Errorf("OnReadError")
 	transSvr.transHdlr = &mocks.MockSvrTransHandler{
-		OnActiveFunc: transSvr.transHdlr.OnActive,
+		OnActiveFunc: svrTransHdlr.OnActive,
 		OnReadFunc: func(ctx context.Context, conn net.Conn) error {
 			return expectedErr
 		},
@@ -222,6 +228,25 @@ func TestServeConn(t *testing.T) {
 	test.Assert(t, err == expectedErr)
 	test.Assert(t, isClosed)
 	isClosed = false
+
+	// OnRead, once
+	cnt := 0
+	transSvr.transHdlr = &mocks.MockSvrTransHandler{
+		OnActiveFunc: svrTransHdlr.OnActive,
+		OnReadFunc: func(ctx context.Context, conn net.Conn) error {
+			if e, ok := conn.(internalRemote.OnceExecutor); ok {
+				if !e.Do() {
+					return nil
+				}
+			}
+			cnt++
+			return nil
+		},
+		Opt: transSvr.opt,
+	}
+	err = transSvr.serveConn(context.Background(), mockConn)
+	test.Assert(t, err == nil, err)
+	test.Assert(t, cnt == 1)
 
 	// Panic, recovered
 	transSvr.transHdlr = &mocks.MockSvrTransHandler{

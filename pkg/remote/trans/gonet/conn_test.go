@@ -43,6 +43,11 @@ func TestSvrConn(t *testing.T) {
 	test.Assert(t, err == nil)
 	test.Assert(t, n == len(b))
 
+	// Do and Done
+	test.Assert(t, sc.Do())
+	test.Assert(t, sc.Done())
+	test.Assert(t, !sc.Do())
+
 	// close
 	sc.Close()
 	test.Assert(t, sc.closed.Load())

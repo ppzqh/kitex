@@ -19,6 +19,7 @@ package nphttp2
 import (
 	"context"
 	"errors"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/cloudwego/kitex/internal/mocks"
 	mockBufiox "github.com/cloudwego/kitex/internal/mocks/bufiox"
 	mocksremote "github.com/cloudwego/kitex/internal/mocks/remote"
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/remote"
@@ -143,6 +145,28 @@ func TestServerHandler(t *testing.T) {
 
 	// test SetPipeline()
 	handler.SetPipeline(nil)
+}
+
+var _ internalRemote.OnceExecutor = &mockOnceExecutor{}
+
+type mockOnceExecutor struct {
+	done atomic.Bool
+	net.Conn
+}
+
+func (m *mockOnceExecutor) Done() bool {
+	return m.done.Load()
+}
+
+func (m *mockOnceExecutor) Do() bool {
+	return m.done.CompareAndSwap(false, true)
+}
+
+func TestServerHandlerOnceDone(t *testing.T) {
+	th := &svrTransHandler{}
+	m := &mockOnceExecutor{}
+	test.Assert(t, th.shouldExecuteOnRead(m))
+	test.Assert(t, !th.shouldExecuteOnRead(m))
 }
 
 type mockStream struct {

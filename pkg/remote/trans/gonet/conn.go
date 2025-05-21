@@ -46,12 +46,15 @@ func (c *cliConn) SyscallConn() (syscall.RawConn, error) {
 	return c.Conn.(syscall.Conn).SyscallConn()
 }
 
+var _ internalRemote.OnceExecutor = &svrConn{}
+
 // svrConn implements the net.Conn interface.
 // read via bufiox.Reader and write directly to the connection.
 type svrConn struct {
 	net.Conn
-	r      bufiox.Reader
-	closed atomic.Bool
+	r        bufiox.Reader
+	closed   atomic.Bool
+	onceDone atomic.Bool
 }
 
 func newSvrConn(c net.Conn) *svrConn {
@@ -74,4 +77,12 @@ func (bc *svrConn) Close() error {
 
 func (bc *svrConn) Reader() bufiox.Reader {
 	return bc.r
+}
+
+func (bc *svrConn) Done() bool {
+	return bc.onceDone.Load()
+}
+
+func (bc *svrConn) Do() bool {
+	return bc.onceDone.CompareAndSwap(false, true)
 }

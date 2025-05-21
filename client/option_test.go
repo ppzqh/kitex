@@ -25,8 +25,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/kitex/pkg/remote/trans/gonet"
-
 	"github.com/golang/mock/gomock"
 
 	"github.com/cloudwego/kitex/internal/client"
@@ -46,6 +44,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/http"
 	"github.com/cloudwego/kitex/pkg/loadbalance"
 	"github.com/cloudwego/kitex/pkg/proxy"
+	"github.com/cloudwego/kitex/pkg/remote/trans/gonet"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc"
 	"github.com/cloudwego/kitex/pkg/retry"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"

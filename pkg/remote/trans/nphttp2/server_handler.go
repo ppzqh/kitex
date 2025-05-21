@@ -29,6 +29,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	internalRemote "github.com/cloudwego/kitex/internal/remote"
+
 	"github.com/cloudwego/gopkg/bufiox"
 	"github.com/cloudwego/netpoll"
 
@@ -39,7 +41,6 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/codec"
 	"github.com/cloudwego/kitex/pkg/remote/codec/grpc"
-	"github.com/cloudwego/kitex/pkg/remote/trans"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/codes"
 	grpcTransport "github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/status"
@@ -139,10 +140,8 @@ func (t *svrTransHandler) Read(ctx context.Context, conn net.Conn, msg remote.Me
 
 // 只 return write err
 func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
-	// set the CtxValueOnRead to make sure that each conn only executes OnRead once.
-	if v := ctx.Value(trans.CtxKeyOnRead{}); v != nil {
-		value := v.(*trans.CtxValueOnRead)
-		value.Execute()
+	if !t.shouldExecuteOnRead(conn) {
+		return nil
 	}
 	svrTrans := ctx.Value(ctxKeySvrTransport).(*SvrTrans)
 	tr := svrTrans.tr
@@ -292,6 +291,16 @@ func (t *svrTransHandler) handleFunc(s *grpcTransport.Stream, svrTrans *SvrTrans
 		return
 	}
 	tr.WriteStatus(s, status.New(codes.OK, ""))
+}
+
+func (t *svrTransHandler) shouldExecuteOnRead(conn net.Conn) bool {
+	// make sure that each conn only executes OnRead once.
+	// `Do` return true if executed the first time. Otherwise, return.
+	// `Done` will be checked in transServer to decide whether to break the serve connection loop.
+	if e, ok := conn.(internalRemote.OnceExecutor); ok {
+		return e.Do()
+	}
+	return true
 }
 
 // invokeStreamUnaryHandler allows unary APIs over HTTP2 to use the same server middleware as non-streaming APIs.

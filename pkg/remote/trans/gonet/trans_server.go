@@ -112,11 +112,6 @@ func (ts *transServer) serveConn(ctx context.Context, conn net.Conn) (err error)
 		klog.CtxErrorf(ctx, "KITEX: OnActive error=%s", err)
 		return err
 	}
-
-	ctxValueOnRead := &trans.CtxValueOnRead{}
-	ctx = context.WithValue(ctx, trans.CtxKeyOnRead{}, ctxValueOnRead)
-	onReadOnlyOnceCheck := false
-
 	for {
 		// block to wait for next request
 		_, err = bc.r.Peek(1)
@@ -125,14 +120,13 @@ func (ts *transServer) serveConn(ctx context.Context, conn net.Conn) (err error)
 		}
 		ts.refreshDeadline(rpcinfo.GetRPCInfo(ctx), bc)
 		err = ts.transHdlr.OnRead(ctx, bc)
-		if !onReadOnlyOnceCheck {
-			onReadOnlyOnceCheck = true
-			if ctxValueOnRead.IsExecuted() {
-				break
-			}
-		}
 		if err != nil {
 			return err
+		}
+		if bc.Done() {
+			// if Done returns true, return here.
+			// for now, only http2 serverHandler execute `Do`.
+			break
 		}
 		// FIXME: DefaultReader Release only free the buffer. looks like it can be reused.
 		bc.r.Release(nil)

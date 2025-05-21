@@ -25,3 +25,9 @@ type SetState interface {
 type IsGonet interface {
 	IsGonet() bool
 }
+
+// OnceExecutor defines an interface for an operation that can only be executed once.
+type OnceExecutor interface {
+	Done() bool // Returns true if the operation has already been executed
+	Do() bool   // Executes the operation once; returns false if execution fails
+}
