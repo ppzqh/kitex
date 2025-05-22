@@ -44,7 +44,7 @@ func (d *dialer) DialTimeout(network, address string, timeout time.Duration) (ne
 	if err != nil {
 		return nil, err
 	}
-	return &cliConn{Conn: conn}, nil
+	return newCliConn(conn), nil
 }
 
 func (d *dialer) IsGonet() bool {

@@ -26,20 +26,54 @@ import (
 	internalRemote "github.com/cloudwego/kitex/internal/remote"
 )
 
-var _ internalRemote.SetState = &cliConn{}
+var (
+	_ internalRemote.SetState = &cliConn{}
+	_ bufioxConn              = new(cliConn)
+	_ bufioxConn              = new(svrConn)
+)
+
+type bufioxConn interface {
+	Reader() bufiox.Reader
+	Writer() bufiox.Writer
+}
 
 // cliConn adds IsActive function which is used to check the connection state when getting from connpool.
 type cliConn struct {
 	net.Conn
+	r      bufiox.Reader
+	w      bufiox.Writer
 	closed atomic.Bool
 }
 
+func newCliConn(conn net.Conn) *cliConn {
+	return &cliConn{
+		Conn: conn,
+		r:    getReader(conn),
+		w:    getWriter(conn),
+	}
+}
+
+func (c *cliConn) Reader() bufiox.Reader {
+	return c.r
+}
+
+func (c *cliConn) Writer() bufiox.Writer {
+	return c.w
+}
+
 func (c *cliConn) IsActive() bool {
-	return c.closed.Load()
+	return !c.closed.Load()
 }
 
 func (c *cliConn) SetState(closed bool) {
 	c.closed.Store(closed)
+}
+
+func (c *cliConn) Close() error {
+	c.r.Release(nil)
+	recycleReader(c.r.(*bufiox.DefaultReader))
+	recycleWriter(c.w.(*bufiox.DefaultWriter))
+	return c.Conn.Close()
 }
 
 func (c *cliConn) SyscallConn() (syscall.RawConn, error) {
@@ -49,18 +83,20 @@ func (c *cliConn) SyscallConn() (syscall.RawConn, error) {
 var _ internalRemote.OnceExecutor = &svrConn{}
 
 // svrConn implements the net.Conn interface.
-// read via bufiox.Reader and write directly to the connection.
 type svrConn struct {
 	net.Conn
 	r        bufiox.Reader
+	w        bufiox.Writer
 	closed   atomic.Bool
 	onceDone atomic.Bool
 }
 
 func newSvrConn(c net.Conn) *svrConn {
-	r := readerPool.Get().(*bufiox.DefaultReader)
-	r.SetReader(c)
-	return &svrConn{Conn: c, r: r}
+	return &svrConn{
+		Conn: c,
+		r:    getReader(c),
+		w:    getWriter(c),
+	}
 }
 
 func (bc *svrConn) Read(b []byte) (int, error) {
@@ -70,6 +106,8 @@ func (bc *svrConn) Read(b []byte) (int, error) {
 func (bc *svrConn) Close() error {
 	if bc.closed.CompareAndSwap(false, true) {
 		bc.r.Release(nil)
+		recycleReader(bc.r.(*bufiox.DefaultReader))
+		recycleWriter(bc.w.(*bufiox.DefaultWriter))
 		return bc.Conn.Close()
 	}
 	return nil
@@ -77,6 +115,10 @@ func (bc *svrConn) Close() error {
 
 func (bc *svrConn) Reader() bufiox.Reader {
 	return bc.r
+}
+
+func (bc *svrConn) Writer() bufiox.Writer {
+	return bc.w
 }
 
 func (bc *svrConn) Done() bool {
