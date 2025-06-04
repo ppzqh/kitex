@@ -212,7 +212,8 @@ func (p *pool) checkConnState() error {
 		var toCheck []net.Conn
 		now := time.Now()
 		for _, conn := range p.idleList {
-			if now.After(conn.pooledAt.Add(p.ProactiveCheckConfig.Interval)) {
+			if !now.After(conn.pooledAt.Add(p.ProactiveCheckConfig.Interval)) {
+				// idleList
 				break
 			}
 			toCheck = append(toCheck, conn.RawConn())
