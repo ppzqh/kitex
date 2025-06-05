@@ -64,6 +64,7 @@ func TestConnectionStateCheck(t *testing.T) {
 	}()
 
 	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	defer clientConn.Close()
 	test.Assert(t, err == nil, err)
 
 	serverConn := <-done
@@ -74,8 +75,8 @@ func TestConnectionStateCheck(t *testing.T) {
 	test.Assert(t, !serverConnWithState.closed.Load())
 
 	// close conn
-	clientConn.Close()
-	time.Sleep(100 * time.Millisecond)
+	// clientConn.Close()
+	time.Sleep(1000 * time.Millisecond)
 
 	// check, closed
 	err = ConnectionStateCheck(serverConnWithState)

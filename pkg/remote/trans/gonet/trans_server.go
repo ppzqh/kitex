@@ -114,6 +114,7 @@ func (ts *transServer) serveConn(ctx context.Context, conn net.Conn) (err error)
 	}
 	for {
 		// block to wait for next request
+		bc.SetReadDeadline(time.Time{})
 		_, err = bc.r.Peek(1)
 		if err != nil {
 			return err
