@@ -88,7 +88,7 @@ type BalancerFactory struct {
 	resolver   discovery.Resolver
 	balancer   loadbalance.Loadbalancer
 	rebalancer loadbalance.Rebalancer
-	sfg        singleflight.Group
+	sfg        utils.SingleflightGroup
 }
 
 func cacheKey(resolver, balancer string, opts Options) string {
@@ -158,29 +158,25 @@ func renameResultCacheKey(res *discovery.Result, resolverName string) {
 // Get create a new balancer if not exists
 func (b *BalancerFactory) Get(ctx context.Context, target rpcinfo.EndpointInfo) (*Balancer, error) {
 	desc := b.resolver.Target(ctx, target)
-	val, ok := b.cache.Load(desc)
-	if ok {
-		return val.(*Balancer), nil
-	}
-	val, err, _ := b.sfg.Do(desc, func() (interface{}, error) {
-		if v, ok := b.cache.Load(desc); ok {
-			// cache may be set already
-			return v.(*Balancer), nil
-		}
-		res, err := b.resolver.Resolve(ctx, desc)
-		if err != nil {
-			return nil, err
-		}
-		renameResultCacheKey(&res, b.resolver.Name())
-		bl := &Balancer{
-			b:      b,
-			target: desc,
-		}
-		bl.res.Store(res)
-		bl.sharedTicker = getSharedTicker(bl, b.opts.RefreshInterval)
-		b.cache.Store(desc, bl)
-		return bl, nil
-	})
+	val, err, _ := b.sfg.CheckAndDo(desc,
+		func() (any, bool) {
+			return b.cache.Load(desc)
+		},
+		func() (interface{}, error) {
+			res, err := b.resolver.Resolve(ctx, desc)
+			if err != nil {
+				return nil, err
+			}
+			renameResultCacheKey(&res, b.resolver.Name())
+			bl := &Balancer{
+				b:      b,
+				target: desc,
+			}
+			bl.res.Store(res)
+			bl.sharedTicker = getSharedTicker(bl, b.opts.RefreshInterval)
+			b.cache.Store(desc, bl)
+			return bl, nil
+		})
 	if err != nil {
 		return nil, err
 	}
