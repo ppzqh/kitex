@@ -1,6 +1,8 @@
 module github.com/cloudwego/kitex
 
-go 1.19
+go 1.23.0
+
+toolchain go1.24.4
 
 require (
 	github.com/bytedance/gopkg v0.1.2
@@ -20,10 +22,11 @@ require (
 	github.com/jhump/protoreflect v1.8.2
 	github.com/json-iterator/go v1.1.12
 	github.com/tidwall/gjson v1.17.3
-	golang.org/x/net v0.24.0
-	golang.org/x/sync v0.8.0
-	golang.org/x/sys v0.30.0
-	golang.org/x/tools v0.6.0
+	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792
+	golang.org/x/net v0.42.0
+	golang.org/x/sync v0.16.0
+	golang.org/x/sys v0.34.0
+	golang.org/x/tools v0.35.0
 	google.golang.org/genproto v0.0.0-20210513213006-bf773b8c8384
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -47,5 +50,5 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.14.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 )
