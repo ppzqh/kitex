@@ -66,8 +66,7 @@ func TestExecutionTracer(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				id := getLogid(ctx)
-				runtimeTrace.WithRegion(ctx, id, testFunc)
+				testFunc()
 			}()
 		}
 		wg.Wait()
@@ -168,6 +167,7 @@ func parseTrace() {
 		fmt.Println("===============================")
 		for goid, info := range parser.GetAllGoroutines() {
 			fmt.Printf("Goroutine %d:\n", goid)
+			fmt.Printf("  TraceID: %s\n", info.TraceID)
 			fmt.Printf("  Parent: %d\n", info.ParentID)
 			fmt.Printf("  Created: %v\n", info.Created)
 			if info.Finished != 0 {

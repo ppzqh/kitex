@@ -18,6 +18,7 @@ type GoroutineInfo struct {
 	State    trace.GoState
 	Stack    []trace.StackFrame
 	Children []trace.GoID
+	TraceID  string // 关联的 trace.Log() 注入的 ID
 }
 
 // TraceParser 用于解析 runtime trace 文件
@@ -25,14 +26,18 @@ type TraceParser struct {
 	goroutines    map[trace.GoID]*GoroutineInfo
 	relationships map[trace.GoID][]trace.GoID // parent -> children
 	events        []trace.Event
+	goroutineTraceIDs map[trace.GoID]string    // goroutine -> trace ID mapping
+	loggedTraceIDs    map[trace.GoID]string    // 每个goroutine最后记录的trace.Log() ID
 }
 
 // NewTraceParser 创建新的 trace 解析器
 func NewTraceParser() *TraceParser {
 	return &TraceParser{
-		goroutines:    make(map[trace.GoID]*GoroutineInfo),
-		relationships: make(map[trace.GoID][]trace.GoID),
-		events:        make([]trace.Event, 0),
+		goroutines:        make(map[trace.GoID]*GoroutineInfo),
+		relationships:     make(map[trace.GoID][]trace.GoID),
+		events:            make([]trace.Event, 0),
+		goroutineTraceIDs: make(map[trace.GoID]string),
+		loggedTraceIDs:    make(map[trace.GoID]string),
 	}
 }
 
@@ -118,7 +123,12 @@ func (tp *TraceParser) processStateTransition(ev trace.Event) {
 	if from == trace.GoNotExist && to == trace.GoRunnable {
 		ginfo.Created = ev.Time()
 		ginfo.ParentID = ev.Goroutine()
-		// tp.goroutines[ginfo.ParentID].Children = append(tp.goroutines[ginfo.ParentID].Children, ginfo.ID)
+		
+		// 继承父 goroutine 的 trace ID
+		if parentTraceID, exists := tp.goroutineTraceIDs[ginfo.ParentID]; exists {
+			ginfo.TraceID = parentTraceID
+			tp.goroutineTraceIDs[goid] = parentTraceID
+		}
 	}
 
 	// 检测 goroutine 结束
@@ -155,7 +165,19 @@ func (tp *TraceParser) processTaskEvent(ev trace.Event) {
 // processLogEvent 处理日志事件
 func (tp *TraceParser) processLogEvent(ev trace.Event) {
 	// 处理 runtime/trace.Log 记录的日志
-	// 这可以包含用户自定义的标识信息
+	// 提取用户注入的 trace ID
+	logEvent := ev.Log()
+	if logEvent.Message != "" {
+		goid := ev.Goroutine()
+		// 记录该 goroutine 的 trace ID
+		tp.loggedTraceIDs[goid] = logEvent.Message
+		tp.goroutineTraceIDs[goid] = logEvent.Message
+		
+		// 更新 goroutine 信息中的 trace ID
+		if ginfo, exists := tp.goroutines[goid]; exists {
+			ginfo.TraceID = logEvent.Message
+		}
+	}
 }
 
 // inferParentGoroutine 推断父 goroutine
@@ -260,9 +282,40 @@ func (tp *TraceParser) printGoroutineSubtree(goid trace.GoID, depth int) {
 	}
 }
 
+// GetGoroutineTraceID 获取指定 goroutine 的 trace ID
+func (tp *TraceParser) GetGoroutineTraceID(goid trace.GoID) (string, bool) {
+	traceID, exists := tp.goroutineTraceIDs[goid]
+	return traceID, exists
+}
+
+// GetGoroutinesByTraceID 获取指定 trace ID 关联的所有 goroutine
+func (tp *TraceParser) GetGoroutinesByTraceID(traceID string) []trace.GoID {
+	var goroutines []trace.GoID
+	for goid, id := range tp.goroutineTraceIDs {
+		if id == traceID {
+			goroutines = append(goroutines, goid)
+		}
+	}
+	return goroutines
+}
+
+// GetAllTraceIDs 获取所有的 trace ID
+func (tp *TraceParser) GetAllTraceIDs() []string {
+	traceIDSet := make(map[string]bool)
+	for _, traceID := range tp.goroutineTraceIDs {
+		traceIDSet[traceID] = true
+	}
+	
+	var traceIDs []string
+	for traceID := range traceIDSet {
+		traceIDs = append(traceIDs, traceID)
+	}
+	return traceIDs
+}
+
 // GetStatistics 获取统计信息
-func (tp *TraceParser) GetStatistics() map[string]interface{} {
-	stats := make(map[string]interface{})
+func (tp *TraceParser) GetStatistics() map[string]any {
+	stats := make(map[string]any)
 
 	totalGoroutines := len(tp.goroutines)
 	stats["total_goroutines"] = totalGoroutines
@@ -292,6 +345,14 @@ func (tp *TraceParser) GetStatistics() map[string]interface{} {
 	// 计算树的深度
 	maxDepth := tp.calculateMaxDepth()
 	stats["max_goroutine_tree_depth"] = maxDepth
+	
+	// trace ID 统计
+	stats["total_trace_ids"] = len(tp.GetAllTraceIDs())
+	traceIDStats := make(map[string]int)
+	for _, traceID := range tp.goroutineTraceIDs {
+		traceIDStats[traceID]++
+	}
+	stats["trace_id_distribution"] = traceIDStats
 
 	return stats
 }
